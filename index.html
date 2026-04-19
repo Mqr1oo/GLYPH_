@@ -148,47 +148,6 @@
 </head>
 <body>
 
-
-<div id="glyph-security-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#050505; color:#fff; z-index:999999; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family: 'JetBrains Mono', monospace, sans-serif;">
-    <div style="text-align: center; max-width: 320px; padding: 20px; background: #121214; border: 1px solid #2a2a2d; border-radius: 20px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);">
-        <h2 style="color:#0a84ff; letter-spacing: 2px; margin-bottom: 5px; font-weight: bold; font-size: 22px;">RESTRICTED AREA</h2>
-        <p style="color:#8e8e93; font-size: 12px; margin-bottom: 25px; font-family: 'Inter', sans-serif;">GLYPH OS PRO ACCESS REQUIRED</p>
-        <input type="password" id="glyph-pass-input" placeholder="Enter Authorization Code..." style="width: 100%; padding:14px; border:1px solid #2a2a2d; background:#050505; color:#fff; text-align:center; outline:none; border-radius: 12px; margin-bottom: 15px; font-family: 'Inter', sans-serif; font-size: 14px; box-sizing: border-box;">
-        <button onclick="unlockGlyph()" style="width: 100%; padding:14px; background:#0a84ff; color:#fff; border:none; border-radius: 12px; cursor:pointer; font-weight:600; font-family: 'Inter', sans-serif; transition: 0.2s; font-size: 14px; letter-spacing: 1px;">AUTHORIZE</button>
-        <p id="glyph-error-msg" style="color:#ff453a; margin-top:15px; font-size: 12px; display:none; font-family: 'Inter', sans-serif; font-weight: 500;">ACCESS DENIED. INVALID CODE.</p>
-    </div>
-</div>
-
-<script>
-    const glyphCorrectHash = "098dc4ef60d43ae2c7fd7a5ca7658e6223a7528df221435733e6978492ae1409"; 
-
-    if(localStorage.getItem('glyph_unlocked') === 'true') {
-        document.getElementById('glyph-security-overlay').style.display = 'none';
-    }
-
-    async function unlockGlyph() {
-        const pass = document.getElementById('glyph-pass-input').value;
-        const msg = document.getElementById('glyph-error-msg');
-        
-        const encoder = new TextEncoder();
-        const data = encoder.encode(pass);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const inputHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-        if (inputHash === glyphCorrectHash) {
-            document.getElementById('glyph-security-overlay').style.display = 'none';
-            localStorage.setItem('glyph_unlocked', 'true');
-        } else {
-            msg.style.display = 'block';
-        }
-    }
-
-    document.getElementById('glyph-pass-input').addEventListener('keypress', function(e) {
-        if(e.key === 'Enter') unlockGlyph();
-    });
-</script>
-
 <div class="container">
     <h1>GLYPH OS</h1>
     <div class="subtitle">CORE SYSTEM HUB</div>
@@ -199,6 +158,9 @@
         </a>
         <a href="flasher/" class="btn secondary">
             FIRMWARE FLASHER
+        </a>
+        <a href="kml/KML.html" class="btn secondary">
+            ROUTE PLANNER (KML)
         </a>
     </div>
     
