@@ -195,34 +195,11 @@
 </div>
 
 <script>
-    // ------------------------------------------------------------------
-    // CODUL DE ACCES
-    //
-    // Un singur cod, pe care il alegi tu si il dai cui vrei - la fel ca inainte.
-    // Ce s-a schimbat e doar felul in care e stocat aici:
-    //
-    //   inainte: SHA-256(cod), fara salt
-    //            SHA-256 e proiectat sa fie rapid, deci un GPU incearca
-    //            miliarde de variante pe secunda; un cod scurt cade in secunde.
-    //
-    //   acum:    PBKDF2-HMAC-SHA256(cod, salt aleator, 300.000 de iteratii)
-    //            fiecare incercare costa ~0.3 s, deci un atac prin dictionar
-    //            devine nepractic. Saltul face inutile tabelele precalculate.
-    //
-    // Ca sa schimbi codul: deschide set-lock-code.html, scrie codul, si
-    // inlocuieste cele trei valori de mai jos cu ce iti afiseaza.
-    //
-    // Limita reala, ca sa fie clar: verificarea ruleaza in browserul
-    // vizitatorului. Tine departe pe cineva care nimereste linkul, nu pe cineva
-    // care deschide DevTools. Daca vrei sa fie de netrecut, trebuie verificat pe
-    // server - GitHub Pages nu poate, dar Cloudflare Access sau un Worker mic
-    // in fata paginii pot.
-    // ------------------------------------------------------------------
     const GLYPH_LOCK = {
-        salt: "",          // <-- din set-lock-code.html
-        hash: "",          // <-- din set-lock-code.html
-        iterations: 300000
-    };
+    salt: "5d82afb5e3d9e97759e2ff9f64fa8682",
+    hash: "253a7c3c7c32fd44a4b152b623a82f4b83544a326ad1104381c5ef5ae5acb230",
+    iterations: 300000
+};
 
     (function () {
         const UNLOCK_KEY = 'glyph_unlocked_v2';
