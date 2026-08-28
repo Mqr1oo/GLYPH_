@@ -65,188 +65,69 @@ void scanKMLFiles() {
     }
 }
 
-void parseKmlToken(String t, float &lastLatParsed, float &lastLonParsed) {
-    t.trim();
-    if (t.length() > 3) {
-        int comma1 = t.indexOf(',');
-        if (comma1 > 0) {
-            float lon = t.substring(0, comma1).toFloat();
-            int comma2 = t.indexOf(',', comma1 + 1);
-            float lat = (comma2 > 0) ? t.substring(comma1 + 1, comma2).toFloat() : t.substring(comma1 + 1).toFloat();
-            
-            if (lon != 0.0 && lat != 0.0) {
-                if (lat < kmlCacheMinLat) kmlCacheMinLat = lat; 
-                if (lat > kmlCacheMaxLat) kmlCacheMaxLat = lat;
-                if (lon < kmlCacheMinLon) kmlCacheMinLon = lon; 
-                if (lon > kmlCacheMaxLon) kmlCacheMaxLon = lon;
-                
-                if (lastLatParsed != -999 && lastLonParsed != -999) {
-                    float legDist = calculateDistance(lastLatParsed, lastLonParsed, lat, lon);
-                    if (legDist < 50.0) { 
-                        kmlCacheDistance += legDist; 
-                    }
-                }
-                lastLatParsed = lat; 
-                lastLonParsed = lon;
-            }
-        }
-    }
-}
+// Bucla de citire a unui KML de pe SD era copiata identic in loadKMLCache() si
+// in drawKMLOverlay(): acelasi parser de tag-uri, acelasi tokenizer, aceeasi
+// hranire a watchdog-ului la fiecare 250 de caractere. Singura diferenta reala
+// era ce se face cu fiecare coordonata. Acum bucla e una singura si primeste
+// un callback; newSegment marcheaza inceputul unui bloc <coordinates> nou.
 
-void loadKMLCache() {
-    kmlCacheMinLat = 90; 
-    kmlCacheMaxLat = -90; 
-    kmlCacheMinLon = 180; 
-    kmlCacheMaxLon = -180; 
-    kmlCacheDistance = 0.0; 
-    kmlCacheValid = false;
-    
-    if (currentKmlOverlay == "" || currentKmlOverlay == "[ NO OVERLAY ]" || !sdDetected) return;
-    
-    acquireSD(); 
-    String path = currentKmlOverlay;
-    if (!path.startsWith("/")) path = "/" + path;
-    path.replace("//", "/"); 
-    
-    File f = SD.open(path); 
-    if (!f) return;
-    
-    bool inCoords = false; 
-    String token = ""; 
-    float lastLatParsed = -999, lastLonParsed = -999;
-    
-    // TRUCUL 1: Resetam timerul watchdog in timp ce citim SD-ul
-    int watchdogFeeder = 0; 
-    
-    while (f.available()) {
-        char c = f.read();
-        
-        watchdogFeeder++;
-        if (watchdogFeeder > 250) { yield(); watchdogFeeder = 0; } // Luam "aer" la fiecare 250 de litere
-
-        if (c == '<') {
-            if (inCoords && token.length() > 0) { 
-                parseKmlToken(token, lastLatParsed, lastLonParsed); 
-                token = ""; 
-            }
-            String tag = "<"; 
-            while (f.available()) { 
-                c = f.read(); 
-                
-                watchdogFeeder++;
-                if (watchdogFeeder > 250) { yield(); watchdogFeeder = 0; } // Protectie si in bucla interna
-                
-                tag += c; 
-                if (c == '>') break; 
-            } 
-            if (tag.indexOf("<coordinates>") != -1) {
-                inCoords = true;
-            } else if (tag.indexOf("</coordinates>") != -1) { 
-                inCoords = false; 
-                lastLatParsed = -999; 
-                lastLonParsed = -999; 
-            }
-        } else if (inCoords) {
-            if (isspace(c)) {
-                if (token.length() > 0) { 
-                    parseKmlToken(token, lastLatParsed, lastLonParsed); 
-                    token = ""; 
-                }
-            } else {
-                if (token.length() < 64) token += c; 
-            }
-        }
-    }
-    f.close(); 
-    
-    if (kmlCacheMinLat != 90 && kmlCacheMaxLat != -90) {
-        kmlCacheValid = true;
-    }
-}
-
-void drawKMLOverlay(String path, double centerLat, double centerLon, float scale, float cosLat, int cx, int cy, int mx, int my, int mw, int mh) {
+static void forEachKmlPoint(String path, KmlPointFn onPoint) {
     if (path == "" || path == "[ NO OVERLAY ]" || !sdDetected) return;
-    
-    acquireSD(); 
+
+    acquireSD();
     if (!path.startsWith("/")) path = "/" + path;
-    path.replace("//", "/"); 
+    path.replace("//", "/");
 
-    File f = SD.open(path); 
+    File f = SD.open(path);
     if (!f) return;
-    
-    bool inCoords = false; 
-    String token = ""; 
-    bool isFirstPoint = true; 
-    int prevX = 0, prevY = 0;
-    
-    auto parseAndDraw = [&](String t) {
-        t.trim();
-        int c1 = t.indexOf(',');
-        if (c1 > 0) {
-            float lon = t.substring(0, c1).toFloat();
-            int c2 = t.indexOf(',', c1 + 1);
-            float lat = (c2 > 0) ? t.substring(c1 + 1, c2).toFloat() : t.substring(c1 + 1).toFloat();
-            
-            if (lon != 0.0 && lat != 0.0) {
-                long px_raw = cx + (lon - centerLon) * scale * cosLat;
-                long py_raw = cy - (lat - centerLat) * scale;
-                
-                if (px_raw > 30000) px_raw = 30000;
-                if (px_raw < -30000) px_raw = -30000;
-                if (py_raw > 30000) py_raw = 30000;
-                if (py_raw < -30000) py_raw = -30000;
-                
-                int px = (int)px_raw;
-                int py = (int)py_raw;
 
-                // TRUCUL 2: OPTIMIZAREA DE PIXELI
-                // Daca punctul cade exact peste punctul desenat anterior, il sarim (salveaza enorm de mult timp)
-                if (!isFirstPoint && px == prevX && py == prevY) {
-                    return; 
-                }
-
-                if (!isFirstPoint) {
-                    display.drawLine(prevX, prevY, px, py, GxEPD_BLACK);
-                } else {
-                    isFirstPoint = false;
-                }
-                
-                prevX = px; 
-                prevY = py;
-            }
-        }
-    };
-
-    // TRUCUL 1: Resetam timerul watchdog in timp ce citim SD-ul
+    bool inCoords = false;
+    bool newSegment = true;
+    String token = "";
     int watchdogFeeder = 0;
 
+    // Interpreteaza un token "lon,lat[,alt]" si il paseaza mai departe.
+    auto emit = [&](String t) {
+        t.trim();
+        if (t.length() <= 3) return;
+        int c1 = t.indexOf(',');
+        if (c1 <= 0) return;
+        float lon = t.substring(0, c1).toFloat();
+        int c2 = t.indexOf(',', c1 + 1);
+        float lat = (c2 > 0) ? t.substring(c1 + 1, c2).toFloat()
+                             : t.substring(c1 + 1).toFloat();
+        if (lon == 0.0f || lat == 0.0f) return;
+        onPoint(lat, lon, newSegment);
+        newSegment = false;
+    };
+
     while (f.available()) {
         char c = f.read();
-        
+
+        // Fara asta, un KML mare declanseaza watchdog-ul in timpul citirii.
         watchdogFeeder++;
-        if (watchdogFeeder > 250) { yield(); watchdogFeeder = 0; } // Luam "aer" la fiecare 250 de litere
+        if (watchdogFeeder > 250) { yield(); watchdogFeeder = 0; }
 
         if (c == '<') {
-            if (inCoords && token.length() > 0) { parseAndDraw(token); token = ""; }
-            String tag = "<"; 
-            while (f.available()) { 
+            if (inCoords && token.length() > 0) { emit(token); token = ""; }
+            String tag = "<";
+            while (f.available()) {
                 c = f.read();
-                
                 watchdogFeeder++;
-                if (watchdogFeeder > 250) { yield(); watchdogFeeder = 0; } // Protectie bucla interna
-                
+                if (watchdogFeeder > 250) { yield(); watchdogFeeder = 0; }
                 tag += c;
                 if (c == '>') break;
-            } 
+            }
             if (tag.indexOf("<coordinates>") != -1) {
                 inCoords = true;
-            } else if (tag.indexOf("</coordinates>") != -1) { 
-                inCoords = false; 
-                isFirstPoint = true; 
+                newSegment = true;
+            } else if (tag.indexOf("</coordinates>") != -1) {
+                inCoords = false;
+                newSegment = true;
             }
         } else if (inCoords) {
             if (isspace(c)) {
-                if (token.length() > 0) { parseAndDraw(token); token = ""; }
+                if (token.length() > 0) { emit(token); token = ""; }
             } else {
                 if (token.length() < 64) token += c;
             }
@@ -255,21 +136,79 @@ void drawKMLOverlay(String path, double centerLat, double centerLon, float scale
     f.close();
 }
 
+void loadKMLCache() {
+    kmlCacheMinLat = 90;
+    kmlCacheMaxLat = -90;
+    kmlCacheMinLon = 180;
+    kmlCacheMaxLon = -180;
+    kmlCacheDistance = 0.0;
+    kmlCacheValid = false;
+
+    float prevLat = -999, prevLon = -999;
+
+    forEachKmlPoint(currentKmlOverlay, [&](float lat, float lon, bool newSegment) {
+        if (lat < kmlCacheMinLat) kmlCacheMinLat = lat;
+        if (lat > kmlCacheMaxLat) kmlCacheMaxLat = lat;
+        if (lon < kmlCacheMinLon) kmlCacheMinLon = lon;
+        if (lon > kmlCacheMaxLon) kmlCacheMaxLon = lon;
+
+        if (newSegment) { prevLat = -999; prevLon = -999; }
+
+        if (prevLat != -999 && prevLon != -999) {
+            float legDist = calculateDistance(prevLat, prevLon, lat, lon);
+            // Sarituri de peste 50 km intre doua puncte consecutive inseamna
+            // date corupte, nu deplasare - nu le adunam in total.
+            if (legDist < 50.0) kmlCacheDistance += legDist;
+        }
+        prevLat = lat;
+        prevLon = lon;
+    });
+
+    if (kmlCacheMinLat != 90 && kmlCacheMaxLat != -90) {
+        kmlCacheValid = true;
+    }
+}
+
+void drawKMLOverlay(String path, double centerLat, double centerLon, float scale,
+                    float cosLat, int cx, int cy, int mx, int my, int mw, int mh) {
+    bool isFirstPoint = true;
+    int prevX = 0, prevY = 0;
+
+    forEachKmlPoint(path, [&](float lat, float lon, bool newSegment) {
+        if (newSegment) isFirstPoint = true;
+
+        long px_raw = cx + (lon - centerLon) * scale * cosLat;
+        long py_raw = cy - (lat - centerLat) * scale;
+
+        // Coordonatele foarte departe de ecran ar depasi intervalul lui int.
+        if (px_raw >  30000) px_raw =  30000;
+        if (px_raw < -30000) px_raw = -30000;
+        if (py_raw >  30000) py_raw =  30000;
+        if (py_raw < -30000) py_raw = -30000;
+
+        int px = (int)px_raw;
+        int py = (int)py_raw;
+
+        // Un punct care cade exact peste cel anterior nu adauga nimic vizual,
+        // dar costa un drawLine - la trasee lungi economiseste mult timp.
+        if (!isFirstPoint && px == prevX && py == prevY) return;
+
+        if (!isFirstPoint) display.drawLine(prevX, prevY, px, py, GxEPD_BLACK);
+        else isFirstPoint = false;
+
+        prevX = px;
+        prevY = py;
+    });
+}
+
 void logSystemData(String sysLog) {
     if (!sdDetected) return;
     acquireSD(); 
-    char dateStr[16] = "00_00_0000";
-    char timeStr[16] = "00:00:00";
-    
-    if ((gps_ok || simActive) && gpsTimeValid) {
-        snprintf(dateStr, sizeof(dateStr), "%02d_%02d_%04d", gpsDay, gpsMonth, gpsYear);
-        snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", (gpsHour + timeOffset + 24) % 24, gpsMinute % 60, gpsSecond);
-    }
-    
-    int batPct = (int)((batVoltage - 3.2) * 100.0);
-    batPct = constrain(batPct, 1, 100);
-    
-    String csvPath = "/sys_" + String(dateStr) + ".csv";
+    String dateStr = formatLocalDateFile();
+    String timeStr = formatLocalTimeSec();
+    int batPct = getBatteryPercent();
+
+    String csvPath = "/sys_" + dateStr + ".csv";
     bool isNewFile = !SD.exists(csvPath); 
 
     File f = SD.open(csvPath, FILE_APPEND);
@@ -278,9 +217,11 @@ void logSystemData(String sysLog) {
             f.println("Date,Time,Latitude,Longitude,Temp(C),Humidity(%),Accel_X(m/s2),Accel_Y(m/s2),Accel_Z(m/s2),Speed(km/h),Heading(deg),Battery(%),Log_System");
         }
     
-        f.printf("%s,%s,%.7f,%.7f,%.1f,%.1f,%.2f,%.2f,%.2f,%.1f,%.1f,%d,%s\n", 
-            dateStr, timeStr, lastLat, lastLon, currentTemp, currentHum, 
-            currentAx, currentAy, currentAz, currentSpeed, currentHeading, batPct, sysLog.c_str()); 
+        double cLat, cLon;
+        getGpsPosition(cLat, cLon);
+        f.printf("%s,%s,%.7f,%.7f,%.1f,%.1f,%.2f,%.2f,%.2f,%.1f,%.1f,%d,%s\n",
+            dateStr.c_str(), timeStr.c_str(), cLat, cLon, currentTemp, currentHum,
+            currentAx, currentAy, currentAz, currentSpeed, currentHeading, batPct, sysLog.c_str());
         f.flush(); 
         f.close();
     }
@@ -347,11 +288,8 @@ void logGPS(double lat, double lon, float alt) {
 void logLoraMessage(String msg, bool isEncrypted) {
     if (!sdDetected) return; 
     acquireSD();
-    char dateStr[16] = "00_00_0000";
-    if ((gps_ok || simActive) && gpsTimeValid) { 
-        snprintf(dateStr, sizeof(dateStr), "%02d_%02d_%04d", gpsDay, gpsMonth, gpsYear); 
-    }
-    String path = isEncrypted ? "/sec_" + String(dateStr) + ".txt" : "/pub_" + String(dateStr) + ".txt";
+    String dateStr = formatLocalDateFile();
+    String path = isEncrypted ? "/sec_" + dateStr + ".txt" : "/pub_" + dateStr + ".txt";
     File f = SD.open(path, FILE_APPEND); 
     if (f) { 
         f.println(msg); 

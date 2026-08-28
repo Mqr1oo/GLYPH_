@@ -3,6 +3,7 @@
 #include <Wire.h>
 #include <sys/time.h> 
 #include <math.h>
+#include <new>
 #include "driver/gpio.h" 
 #include "esp_sleep.h"
 #include <Preferences.h> 
@@ -30,6 +31,8 @@
 #include <Adafruit_SHT4x.h>
 #include <Adafruit_LSM6DSOX.h>
 #include <Adafruit_LIS3MDL.h>
+
+#include "glyph_types.h"
 
 const String OS_VERSION = "10.08.26"; 
 
@@ -66,7 +69,8 @@ bool mag_ok = false;
 bool gps_ok = false;
 bool sdDetected = false;
 
-TaskHandle_t core0Task;
+TaskHandle_t buttonTaskHandle;
+TaskHandle_t sensorTaskHandle;
 SemaphoreHandle_t i2cMutex;
 
 volatile bool raw_A = false, raw_B = false, raw_C = false;
@@ -83,24 +87,6 @@ volatile bool virt_comboAB = false;
 volatile bool virt_comboAC = false;
 volatile bool virt_comboBC = false;
 
-enum SystemState { 
-    PAGE_INIT_LANG,
-    PAGE_INIT_FREQ, 
-    PAGE_INIT_NAME,
-    PAGE_INIT_TIME,  
-    PAGE_MAP, 
-    PAGE_KML_LIST,  
-    PAGE_CLOCK, 
-    PAGE_LORA,      
-    PAGE_KEYBOARD,  
-    PAGE_MENU_MAIN, 
-    PAGE_MENU_TEAM, 
-    PAGE_TEAM_NAME_EDIT,
-    PAGE_MENU_POWER, 
-    PAGE_MENU_LANG,
-    PAGE_MENU_TIME, 
-    STANDBY_MODE 
-}; 
 RTC_DATA_ATTR SystemState currentState = PAGE_INIT_LANG; 
 
 bool requestUIUpdate = false; 
@@ -147,12 +133,6 @@ RTC_DATA_ATTR double lastRenderedLon = 0.0;
 RTC_DATA_ATTR double lastLoggedLat = 0.0; 
 RTC_DATA_ATTR double lastLoggedLon = 0.0;
 
-struct Teammate {
-    String name;
-    double lat;
-    double lon;
-    unsigned long lastSeen;
-};
 const int MAX_TEAMMATES = 5;
 Teammate teammates[MAX_TEAMMATES];
 int teammateCount = 0;
@@ -170,13 +150,15 @@ RTC_DATA_ATTR bool useAmPmFormat = false;
 String myName = ""; 
 String myTeam = "ALPHA"; 
 
-enum PowerMode { NORMAL_MODE, ECO_MODE, STEALTH_MODE };
 RTC_DATA_ATTR PowerMode currentPowerMode = NORMAL_MODE;
 int mainMenuItem = 0; 
 int menuSelection = 0; 
 int tempLangSelection = 0; 
 int tempTimeSelection = 2; 
 
+// FIX: exista 11 limbi, dar meniurile permiteau doar indicii 0..9,
+// deci a 11-a limba (Zhongwen) era inaccesibila din interfata.
+const int LANG_COUNT = 11;
 const char* langNames[11] = { "Romana", "English", "Espanol", "Francais", "Deutsch", "Italiano", "Portugues", "Polski", "Nederlands", "Turkce", "Zhongwen" };
 const char* tr_map[11] = { "HARTA TACTICA", "TACTICAL MAP", "MAPA TACTICO", "CARTE TACTIQUE", "TAKTIK-KARTE", "MAPPA TATTICA", "MAPA TATICO", "MAPA TAKTYCZNA", "KAART", "HARITA", "ZHAN SHU DI TU" };
 const char* tr_clock[11] = { "CEAS & SENZORI", "CLOCK & SENSORS", "RELOJ Y SENS.", "HORLOGE & CAPT.", "UHR & SENSOREN", "OROLOGIO & SENS.", "RELOGIO & SENS.", "ZEGAR & CZUJNIKI", "KLOK & SENS.", "SAAT & SENS.", "SHIZHONG & SENS" };
@@ -240,11 +222,15 @@ BLECharacteristic * pTxCharacteristic;
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
 
-String bleRxBuffer = "";
-bool bleDataReceived = false;
+// FIX: inainte era un String Arduino scris in interiorul unei sectiuni critice
+// (portENTER_CRITICAL). Atribuirea unui String face malloc/free, iar malloc cu
+// intreruperile dezactivate poate bloca sau da crash pe ESP32. Acum e un buffer
+// static, deci in sectiunea critica se face doar un memcpy.
+#define BLE_RX_BUF_SIZE 192
+volatile char bleRxBuffer[BLE_RX_BUF_SIZE] = {0};
+volatile bool bleDataReceived = false;
 portMUX_TYPE bleMux = portMUX_INITIALIZER_UNLOCKED;
 
-struct GeoPoint { float lat; float lon; };
 const int MAX_BREADCRUMBS = 350; 
 RTC_DATA_ATTR GeoPoint breadcrumbs[MAX_BREADCRUMBS];     
 RTC_DATA_ATTR int breadcrumbIdx = 0;
@@ -282,8 +268,24 @@ String decryptMsg(String input);
 void logLoraMessage(String msg, bool secure);
 void checkSDHotplug();
 void logSystemData(String type);
-void hardwareCore0Task(void * pvParameters);
-String getSystemTimeStr(); 
+void buttonTask(void * pvParameters);
+void sensorTask(void * pvParameters);
+int getBatteryPercent();
+bool inSetupPage();
+void applyRadioProfile();
+void beginRadio(float freq);
+void applyPowerMode(PowerMode mode);
+void pushLoraHistory(String screenMsg);
+void setTeamName(String name);
+void invalidateTeamKey();
+void setGpsPosition(double lat, double lon, float alt);
+void getGpsPosition(double &lat, double &lon, float &alt);
+void getGpsPosition(double &lat, double &lon);
+void getLocalDateTime(int &year, int &month, int &day, int &hour, int &minute, int &second);
+String formatLocalTime();
+String formatLocalDateFile();
+String formatLocalTimeSec();
+String decryptPacket(byte marker, String payload);
 
 void setup() {
     Serial.begin(115200); 
@@ -336,8 +338,10 @@ void setup() {
 
     gps_ok = myGNSS.begin();
     if(gps_ok) {
-        myGNSS.setI2COutput(COM_TYPE_UBX); 
-        myGNSS.setAutoPVT(false); 
+        myGNSS.setI2COutput(COM_TYPE_UBX);
+        // FIX: autoPVT ON -> modulul impinge singur NAV-PVT si getPVT() nu mai
+        // blocheaza task-ul asteptand raspunsul (cauza principala a scroll-ului greoi).
+        myGNSS.setAutoPVT(true);
     }
     
     SPI.begin(RADIO_SCLK, RADIO_MISO, RADIO_MOSI); 
@@ -382,13 +386,8 @@ void setup() {
     if(currentPowerMode != NORMAL_MODE) setCpuFrequencyMhz(40); 
     else setCpuFrequencyMhz(80);
     
-    radio.begin(currentFreq); 
-    radio.standby(); 
-    radio.setSpreadingFactor(11); 
-    radio.setBandwidth(125.0);
-    radio.setCodingRate(8);
-    radio.setSyncWord(0x12); 
-    radio.setOutputPower(22); 
+    beginRadio(currentFreq);
+    radio.standby();
 
     if (savedVersion != OS_VERSION) { 
         currentLang = 1; 
@@ -403,30 +402,13 @@ void setup() {
         if(currentState == PAGE_INIT_LANG || currentState == PAGE_INIT_FREQ || currentState == PAGE_INIT_NAME || currentState == PAGE_INIT_TIME ) {
             currentState = PAGE_MENU_MAIN; 
         }
-        if (currentPowerMode == NORMAL_MODE) {
-            myGNSS.powerSaveMode(false); 
-            myGNSS.setMeasurementRate(1000); 
-        } else if (currentPowerMode == ECO_MODE) {
-            myGNSS.powerSaveMode(true); 
-            myGNSS.setMeasurementRate(10000);
-        } else if (currentPowerMode == STEALTH_MODE) { 
-            myGNSS.powerSaveMode(true); 
-            myGNSS.setMeasurementRate(50000);
-            radio.standby(); 
-            loraListening = false; 
-        }
+        applyPowerMode(currentPowerMode);
     }
 
-    xTaskCreatePinnedToCore(
-        hardwareCore0Task,   
-        "HW_Task_Core0",     
-        8192,                
-        NULL,                
-        2,                   
-        &core0Task,          
-        0                    
-    );
-    
+    // FIX: doua task-uri separate. Butoanele nu mai stau in spatele GPS-ului.
+    xTaskCreatePinnedToCore(buttonTask, "BTN_Task", 4096, NULL, 4, &buttonTaskHandle, 0);
+    xTaskCreatePinnedToCore(sensorTask, "SENS_Task", 8192, NULL, 1, &sensorTaskHandle, 0);
+
     updateUI();
 }
 
@@ -449,12 +431,17 @@ void loop() {
         String raw; 
         int state = radio.readData(raw); 
         
-        if (state == RADIOLIB_ERR_NONE) { 
-            bool isEncrypted = (raw[0] == '\xFF');
+        if (state == RADIOLIB_ERR_NONE && raw.length() > 0) {
+            // 0xFE = AES-GCM (nou), 0xFF = AES-CBC (vechi, doar la citire)
+            uint8_t marker = (uint8_t)raw[0];
+            bool isEncrypted = (marker == 0xFE || marker == 0xFF);
             if (secureMode && !isEncrypted) { radio.startReceive(); return; }
             if (!secureMode && isEncrypted) { radio.startReceive(); return; }
-            
-            String finalMsg = isEncrypted ? decryptMsg(raw.substring(1)) : raw;
+
+            String finalMsg = isEncrypted ? decryptPacket(marker, raw.substring(1)) : raw;
+            // Mesaj care nu trece verificarea de autenticitate: il ignoram.
+            if (isEncrypted && finalMsg.length() == 0) { radio.startReceive(); return; }
+
             int pipeIdx = finalMsg.lastIndexOf('|');
             if (pipeIdx > 0) {
                 String coords = finalMsg.substring(pipeIdx + 1); 
@@ -492,14 +479,9 @@ void loop() {
                 finalMsg = finalMsg.substring(0, pipeIdx); 
             }
             
-            String timeStr = getSystemTimeStr();
-            String screenMsg = "[" + timeStr + "] " + finalMsg;
-            for(int i = MAX_LORA_MSGS - 1; i > 0; i--) {
-                loraHistory[i] = loraHistory[i-1]; 
-            }
-            loraHistory[0] = screenMsg; 
-            if (loraMsgCount < MAX_LORA_MSGS) loraMsgCount++;
-            
+            String screenMsg = "[" + formatLocalTime() + "] " + finalMsg;
+            pushLoraHistory(screenMsg);
+
             logLoraMessage(screenMsg, secureMode); 
             notifyPhone(screenMsg); 
             requestUIUpdate = true; 
@@ -523,13 +505,16 @@ void loop() {
         }
 
         if (new_gps_data || simActive) {
-            new_gps_data = false; 
-            logGPS(lastLat, lastLon, lastAlt); 
-            
-            if (fabs(lastLat - lastRenderedLat) > 0.0001 || fabs(lastLon - lastRenderedLon) > 0.0001) { 
-                lastRenderedLat = lastLat; 
-                lastRenderedLon = lastLon; 
-                requestUIUpdate = true; 
+            new_gps_data = false;
+
+            double gLat, gLon; float gAlt;
+            getGpsPosition(gLat, gLon, gAlt);
+            logGPS(gLat, gLon, gAlt);
+
+            if (fabs(gLat - lastRenderedLat) > 0.0001 || fabs(gLon - lastRenderedLon) > 0.0001) {
+                lastRenderedLat = gLat;
+                lastRenderedLon = gLon;
+                requestUIUpdate = true;
             }
         }
         
@@ -559,18 +544,18 @@ void loop() {
     vTaskDelay(10 / portTICK_PERIOD_MS);
 }
 
-String getSystemTimeStr() {
-    if (!gpsTimeValid && !simActive) return "--:--";
-    int localH = (gpsHour + timeOffset + 24) % 24;
-    int localM = gpsMinute % 60;
-    char buf[12];
-    
-    if (useAmPmFormat) {
-        int ampmH = localH % 12;
-        if (ampmH == 0) ampmH = 12; 
-        snprintf(buf, sizeof(buf), "%02d:%02d%s", ampmH, localM, localH >= 12 ? "PM" : "AM");
-    } else {
-        snprintf(buf, sizeof(buf), "%02d:%02d", localH, localM);
-    }
-    return String(buf);
+// FIX: exista trei formule diferite de baterie in proiect
+// ((v-3.2)*100 in BLE si in CSV, (v-3.2)/1.1*100 pe ecran) -> telefonul si
+// display-ul aratau procente diferite. Acum toata lumea foloseste asta.
+// Curba reala Li-Ion 18650 in gol, aproximata pe segmente.
+int getBatteryPercent() {
+    float v = batVoltage;
+    if (v >= 4.15f) return 100;
+    if (v <= 3.30f) return 0;
+    if (v > 3.90f) return (int)(80.0f + (v - 3.90f) * (20.0f / 0.25f)); // 3.90-4.15 -> 80..100
+    if (v > 3.70f) return (int)(45.0f + (v - 3.70f) * (35.0f / 0.20f)); // 3.70-3.90 -> 45..80
+    if (v > 3.55f) return (int)(15.0f + (v - 3.55f) * (30.0f / 0.15f)); // 3.55-3.70 -> 15..45
+    return (int)(0.0f + (v - 3.30f) * (15.0f / 0.25f));                // 3.30-3.55 -> 0..15
 }
+
+// Mutata in core_helpers.ino ca formatLocalTime(), care roteste corect si data.

@@ -31,11 +31,9 @@ void drawHeader(String title, bool isMap = false) {
     }
     
     int scrW = display.width(); 
-    String timeStr = getSystemTimeStr(); 
+    String timeStr = formatLocalTime();
     
-    int p = (int)((batVoltage - 3.2) / 1.1 * 100.0);
-    p = constrain(p, 0, 100);
-    String batStr = String(p) + "%";
+    String batStr = String(getBatteryPercent()) + "%"; // FIX: formula unica de baterie
     
     String dirStr = getCardinalDirection(currentHeading, currentSpeed);
 
@@ -131,8 +129,13 @@ void renderMap() {
     bool hasMapContent = hasGpsFix || breadcrumbIdx > 0 || simActive || (currentKmlOverlay != "" && kmlCacheValid);
 
     if (hasMapContent) {
-        double centerLat = lastLat;
-        double centerLon = lastLon;
+        // O singura citire coerenta a pozitiei pentru tot randarea, ca harta sa
+        // nu amestece o latitudine dintr-un fix cu o longitudine din urmatorul.
+        double posLat, posLon;
+        getGpsPosition(posLat, posLon);
+
+        double centerLat = posLat;
+        double centerLon = posLon;
         double scale = 1000.0;
         
         if (!(hasGpsFix || simActive) && currentKmlOverlay != "" && kmlCacheValid) {
@@ -145,8 +148,8 @@ void renderMap() {
             double minLon = centerLon, maxLon = centerLon;
             
             if (hasGpsFix || breadcrumbIdx > 0) {
-                minLat = lastLat; maxLat = lastLat;
-                minLon = lastLon; maxLon = lastLon;
+                minLat = posLat; maxLat = posLat;
+                minLon = posLon; maxLon = posLon;
                 for(int i=0; i < breadcrumbIdx; i++){
                     if (breadcrumbs[i].lat < minLat) minLat = breadcrumbs[i].lat;
                     if (breadcrumbs[i].lat > maxLat) maxLat = breadcrumbs[i].lat;
@@ -178,8 +181,8 @@ void renderMap() {
 
         } else if (mapZoomLevel == 1) { 
             if (hasGpsFix || simActive) {
-                centerLat = lastLat;
-                centerLon = lastLon;
+                centerLat = posLat;
+                centerLon = posLon;
             } else if (currentKmlOverlay != "" && kmlCacheValid) {
                 centerLat = (kmlCacheMinLat + kmlCacheMaxLat) / 2.0;
                 centerLon = (kmlCacheMinLon + kmlCacheMaxLon) / 2.0;
@@ -218,8 +221,8 @@ void renderMap() {
                 display.drawLine(x1, y1, x2, y2, GxEPD_BLACK); 
             }
         }
-        userX = mapCX + (lastLon - centerLon) * scale * cosLat;
-        userY = mapCY - (lastLat - centerLat) * scale;
+        userX = mapCX + (posLon - centerLon) * scale * cosLat;
+        userY = mapCY - (posLat - centerLat) * scale;
         
         if (hasGpsFix || simActive) {
             display.fillCircle(userX, userY, 4, GxEPD_BLACK); 
@@ -351,11 +354,13 @@ void renderClock() {
     u8g2Fonts.setForegroundColor(GxEPD_BLACK); 
     u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
     
-    String timeStr = getSystemTimeStr(); 
+    String timeStr = formatLocalTime();
     char fullDate[32] = "--/--/--";
-    
+
     if((gps_ok || simActive) && gpsTimeValid){
-        snprintf(fullDate, sizeof(fullDate), "%02d/%02d/%02d", gpsDay, gpsMonth, gpsYear % 100);
+        int y, mo, d, h, mi, s;
+        getLocalDateTime(y, mo, d, h, mi, s);
+        snprintf(fullDate, sizeof(fullDate), "%02d/%02d/%02d", d, mo, y % 100);
     }
     
     int startY = 48; 
@@ -371,8 +376,10 @@ void renderClock() {
     u8g2Fonts.print(dateInfo);
     
     startY += 14; 
-    char gpsInfo[64]; 
-    snprintf(gpsInfo, sizeof(gpsInfo), "LAT: %.4f | LON: %.4f", lastLat, lastLon); 
+    char gpsInfo[64];
+    double clkLat, clkLon;
+    getGpsPosition(clkLat, clkLon);
+    snprintf(gpsInfo, sizeof(gpsInfo), "LAT: %.4f | LON: %.4f", clkLat, clkLon);
     u8g2Fonts.setCursor((contentW - u8g2Fonts.getUTF8Width(gpsInfo)) / 2, startY); 
     u8g2Fonts.print(gpsInfo);
 
@@ -444,61 +451,6 @@ void renderLoRa() {
     drawSidebarBtn(cx, 110, "MOD:", secureMode ? "SEC" : "PUB");
 }
 
-void renderKeyboard() {
-    drawHeader(tr_compose[currentLang], false);
-    int scrW = display.width();
-    int scrH = display.height();
-    int rightPanelW = 30;
-    int contentW = scrW - rightPanelW;
-    int cx = contentW + rightPanelW / 2;
-
-    display.drawLine(contentW, 20, contentW, scrH, GxEPD_BLACK);
-    display.drawRoundRect(6, 26, contentW - 12, 24, 4, GxEPD_BLACK);
-    u8g2Fonts.setForegroundColor(GxEPD_BLACK); 
-    u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
-    
-    if (msgDraft.length() > 15) u8g2Fonts.setFont(u8g2_font_5x7_tf);
-    else u8g2Fonts.setFont(u8g2_font_helvB10_tf);
-    
-    u8g2Fonts.setCursor(10, 42); 
-    u8g2Fonts.print((msgDraft + "_").c_str());
-
-    u8g2Fonts.setFont(u8g2_font_helvB12_tf); 
-    int boxSize = 22, spacing = 28, centerY = 62;
-    for(int i = -2; i <= 2; i++) {
-        int idx = (kbCursor + i + (int)strlen(kbChars)) % (int)strlen(kbChars);
-        int boxX = (contentW/2) + (i * spacing) - (boxSize/2);
-        char str[2] = {kbChars[idx], '\0'};
-        int charW = u8g2Fonts.getUTF8Width(str);
-        int charX = boxX + (boxSize - charW) / 2;
-        int charY = centerY + 16; 
-        if(i == 0) { 
-            display.fillRoundRect(boxX, centerY, boxSize, boxSize, 4, GxEPD_BLACK); 
-            u8g2Fonts.setForegroundColor(GxEPD_WHITE); 
-            u8g2Fonts.setBackgroundColor(GxEPD_BLACK); 
-        } else { 
-            u8g2Fonts.setForegroundColor(GxEPD_BLACK); 
-            u8g2Fonts.setBackgroundColor(GxEPD_WHITE); 
-            display.drawRoundRect(boxX, centerY, boxSize, boxSize, 4, GxEPD_BLACK);
-        }
-        u8g2Fonts.setCursor(charX, charY); 
-        u8g2Fonts.print(str);
-    }
-    
-    u8g2Fonts.setFont(u8g2_font_5x7_tf); 
-    u8g2Fonts.setForegroundColor(GxEPD_BLACK); 
-    u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
-    int mw2 = u8g2Fonts.getUTF8Width(tr_use_phone[currentLang]); 
-    u8g2Fonts.setCursor((contentW - mw2)/2, 100); 
-    u8g2Fonts.print(tr_use_phone[currentLang]);
-    
-    drawSidebarBtn(cx, 30, "A/C", "MOV");
-    drawSidebarBtn(cx, 50, "B", "ADD");
-    drawSidebarBtn(cx, 70, "hB", "DEL");
-    drawSidebarBtn(cx, 90, "hC", "SND");
-    drawSidebarBtn(cx, 110, "hA", "EXT");
-}
-
 void renderMenuTeam() {
     drawHeader(tr_team_dash[currentLang], false);
     int scrW = display.width();
@@ -524,8 +476,10 @@ void renderMenuTeam() {
         u8g2Fonts.setCursor((contentW - tw)/2, 75); 
         u8g2Fonts.print(tr_no_team[currentLang]);
     } else {
+        double myLat, myLon;
+        getGpsPosition(myLat, myLon);
         for (int i = 0; i < teammateCount; i++) {
-            float dist = calculateDistance(lastLat, lastLon, teammates[i].lat, teammates[i].lon);
+            float dist = calculateDistance(myLat, myLon, teammates[i].lat, teammates[i].lon);
             String distStr = (dist < 1.0) ? String(dist * 1000, 0) + "m" : String(dist, 1) + "km";
             unsigned long passed = millis() - teammates[i].lastSeen;
             int mins = passed / 60000; 
@@ -545,52 +499,72 @@ void renderMenuTeam() {
     drawSidebarBtn(cx, 75, "B", "EDIT");
 }
 
-void renderTeamNameEdit() {
-    drawHeader(tr_team_name[currentLang], false);
+// renderKeyboard() si renderTeamNameEdit() erau doua copii ale aceleiasi
+// functii de 50 de linii. Difereau prin patru lucruri: titlul, textul editat,
+// eticheta ultimului buton ("SND" vs "SAV") si faptul ca editorul de mesaje
+// micsoreaza fontul dupa 15 caractere. Astea patru sunt acum parametri.
+void renderTextEditor(const char* title, const String& draft,
+                      const char* saveLabel, bool shrinkLongText) {
+    drawHeader(title, false);
     int scrW = display.width();
     int scrH = display.height();
-    int rightPanelW = 30, contentW = scrW - rightPanelW, cx = contentW + rightPanelW / 2;
+    int rightPanelW = 30;
+    int contentW = scrW - rightPanelW;
+    int cx = contentW + rightPanelW / 2;
 
     display.drawLine(contentW, 20, contentW, scrH, GxEPD_BLACK);
     display.drawRoundRect(6, 26, contentW - 12, 24, 4, GxEPD_BLACK);
-    u8g2Fonts.setForegroundColor(GxEPD_BLACK); 
+    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
     u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
-    u8g2Fonts.setFont(u8g2_font_helvB10_tf); 
-    u8g2Fonts.setCursor(10, 42); 
-    u8g2Fonts.print((teamDraft + "_").c_str());
 
-    u8g2Fonts.setFont(u8g2_font_helvB12_tf); 
+    if (shrinkLongText && draft.length() > 15) u8g2Fonts.setFont(u8g2_font_5x7_tf);
+    else u8g2Fonts.setFont(u8g2_font_helvB10_tf);
+
+    u8g2Fonts.setCursor(10, 42);
+    u8g2Fonts.print((draft + "_").c_str());
+
+    u8g2Fonts.setFont(u8g2_font_helvB12_tf);
     int boxSize = 22, spacing = 28, centerY = 62;
-    for(int i = -2; i <= 2; i++) {
+    for (int i = -2; i <= 2; i++) {
         int idx = (kbCursor + i + (int)strlen(kbChars)) % (int)strlen(kbChars);
-        int boxX = (contentW/2) + (i * spacing) - (boxSize/2); 
-        char str[2] = {kbChars[idx], '\0'};
-        int charW = u8g2Fonts.getUTF8Width(str); 
-        int charX = boxX + (boxSize - charW) / 2; 
-        int charY = centerY + 16; 
-        if(i == 0) { 
-            display.fillRoundRect(boxX, centerY, boxSize, boxSize, 4, GxEPD_BLACK); 
-            u8g2Fonts.setForegroundColor(GxEPD_WHITE); 
-            u8g2Fonts.setBackgroundColor(GxEPD_BLACK); 
-        } else { 
-            u8g2Fonts.setForegroundColor(GxEPD_BLACK); 
-            u8g2Fonts.setBackgroundColor(GxEPD_WHITE); 
-            display.drawRoundRect(boxX, centerY, boxSize, boxSize, 4, GxEPD_BLACK); 
+        int boxX = (contentW / 2) + (i * spacing) - (boxSize / 2);
+        char str[2] = { kbChars[idx], '\0' };
+        int charW = u8g2Fonts.getUTF8Width(str);
+        int charX = boxX + (boxSize - charW) / 2;
+        int charY = centerY + 16;
+        if (i == 0) {
+            display.fillRoundRect(boxX, centerY, boxSize, boxSize, 4, GxEPD_BLACK);
+            u8g2Fonts.setForegroundColor(GxEPD_WHITE);
+            u8g2Fonts.setBackgroundColor(GxEPD_BLACK);
+        } else {
+            u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+            u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
+            display.drawRoundRect(boxX, centerY, boxSize, boxSize, 4, GxEPD_BLACK);
         }
-        u8g2Fonts.setCursor(charX, charY); 
+        u8g2Fonts.setCursor(charX, charY);
         u8g2Fonts.print(str);
     }
-    
-    u8g2Fonts.setFont(u8g2_font_5x7_tf); 
-    int mw2 = u8g2Fonts.getUTF8Width(tr_use_phone[currentLang]); 
-    u8g2Fonts.setCursor((contentW - mw2)/2, 100); 
+
+    u8g2Fonts.setFont(u8g2_font_5x7_tf);
+    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+    u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
+    int mw2 = u8g2Fonts.getUTF8Width(tr_use_phone[currentLang]);
+    u8g2Fonts.setCursor((contentW - mw2) / 2, 100);
     u8g2Fonts.print(tr_use_phone[currentLang]);
-    
+
     drawSidebarBtn(cx, 30, "A/C", "MOV");
     drawSidebarBtn(cx, 50, "B", "ADD");
     drawSidebarBtn(cx, 70, "hB", "DEL");
-    drawSidebarBtn(cx, 90, "hC", "SAV");
+    drawSidebarBtn(cx, 90, "hC", saveLabel);
     drawSidebarBtn(cx, 110, "hA", "EXT");
+}
+
+void renderKeyboard() {
+    renderTextEditor(tr_compose[currentLang], msgDraft, "SND", true);
+}
+
+void renderTeamNameEdit() {
+    renderTextEditor(tr_team_name[currentLang], teamDraft, "SAV", false);
 }
 
 void renderMenuLang(bool initMode = false) {

@@ -86,8 +86,8 @@ void evaluateSleep() {
             }
         }
         
-        if (deviceConnected) {
-            pServer->disconnect(0); 
+        if (deviceConnected && pServer) {
+            pServer->disconnect(0);
             delay(50);
         }
         BLEDevice::deinit(true); 
@@ -122,8 +122,17 @@ void evaluateSleep() {
         }
 
       
-        setCpuFrequencyMhz(80); 
-        initBLE(); 
+        setCpuFrequencyMhz(80);
+        // FIX: dupa BLEDevice::deinit() stiva BLE e complet noua, dar flag-urile
+        // ramaneau pe "conectat" -> checkBLEInput() apela startAdvertising() pe un
+        // pServer vechi si telefonul nu mai reusea sa se reconecteze dupa standby.
+        deviceConnected = false;
+        oldDeviceConnected = false;
+        introMode = false;
+        promptNeedsResend = false;
+        pServer = NULL;
+        pTxCharacteristic = NULL;
+        initBLE();
         
         if(gps_ok) { 
             if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {

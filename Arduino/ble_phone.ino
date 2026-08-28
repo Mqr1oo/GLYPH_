@@ -16,14 +16,19 @@ class MyServerCallbacks: public BLEServerCallbacks {
 
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
-        String rxValue = pCharacteristic->getValue().c_str();
-        if (rxValue.length() > 0) {
-            portENTER_CRITICAL(&bleMux);
-            bleRxBuffer = rxValue;
-            bleRxBuffer.trim(); 
-            bleDataReceived = true;
-            portEXIT_CRITICAL(&bleMux);
-        }
+        // auto: getValue() intoarce std::string pe core 2.x si String pe core 3.x
+        auto rxValue = pCharacteristic->getValue();
+        const char* src = rxValue.c_str();
+        size_t n = rxValue.length();
+        if (n == 0) return;
+        if (n >= BLE_RX_BUF_SIZE) n = BLE_RX_BUF_SIZE - 1;
+
+        // Doar memcpy in sectiunea critica - fara alocari de memorie.
+        portENTER_CRITICAL(&bleMux);
+        memcpy((void*)bleRxBuffer, src, n);
+        bleRxBuffer[n] = '\0';
+        bleDataReceived = true;
+        portEXIT_CRITICAL(&bleMux);
     }
 };
 
@@ -59,20 +64,28 @@ void sendTelemetryBLE() {
     if (deviceConnected && millis() - lastBleTelemetry > 5000) {
         lastBleTelemetry = millis();
         
-        int p = constrain((int)((batVoltage - 3.2) * 100.0), 1, 100);
-        notifyPhone("SYS_BATT:" + String(p));
-        notifyPhone("SYS_SATS:" + String(lastSIV));
+        // FIX: inainte se trimiteau 6 notificari BLE una dupa alta, fara pauza.
+        // Stiva BLE are o coada mica -> telefonul pierdea jumatate din ele.
+        // Acum se trimit esalonat, cu o pauza scurta intre ele.
+        notifyPhone("SYS_BATT:" + String(getBatteryPercent())); delay(15);
+        notifyPhone("SYS_SATS:" + String(lastSIV)); delay(15);
 
+        // FIX: cand nu exista fix, aplicatia astepta textul "NO FIX" (il verifica
+        // in handleIncomingData) dar firmware-ul nu il trimitea niciodata.
         if (hasGpsFix || simActive) {
-            notifyPhone("SYS_GPS:" + String(lastLat, 6) + "," + String(lastLon, 6));
+            double bLat, bLon;
+            getGpsPosition(bLat, bLon);
+            notifyPhone("SYS_GPS:" + String(bLat, 6) + "," + String(bLon, 6));
+        } else {
+            notifyPhone("SYS_GPS:NO FIX");
         }
+        delay(15);
 
-        notifyPhone("SYS_ENV:" + String(currentTemp, 1) + "," + String(currentHum, 1));
-        
+        notifyPhone("SYS_ENV:" + String(currentTemp, 1) + "," + String(currentHum, 1)); delay(15);
+
         if (gpsTimeValid) {
-            char tBuf[16];
-            snprintf(tBuf, sizeof(tBuf), "%02d:%02d", (gpsHour + timeOffset + 24) % 24, gpsMinute);
-            notifyPhone("SYS_TIME:" + String(tBuf));
+            notifyPhone("SYS_TIME:" + formatLocalTime());
+            delay(15);
         }
 
         notifyPhone(isRecording ? "SYS_REC:1" : "SYS_REC:0");
@@ -94,8 +107,8 @@ void checkBLEInput() {
     }
     
     if (!deviceConnected && oldDeviceConnected) {
-        delay(500); 
-        pServer->startAdvertising(); 
+        delay(500);
+        if (pServer) pServer->startAdvertising();
         oldDeviceConnected = false;
         introMode = false;
         promptNeedsResend = false;
@@ -106,20 +119,25 @@ void checkBLEInput() {
     }
 
     if (bleDataReceived) {
-        String btMsg;
+        char localBuf[BLE_RX_BUF_SIZE];
         portENTER_CRITICAL(&bleMux);
-        btMsg = bleRxBuffer;
-        bleRxBuffer = ""; 
+        memcpy(localBuf, (const void*)bleRxBuffer, BLE_RX_BUF_SIZE);
+        bleRxBuffer[0] = '\0';
         bleDataReceived = false;
         portEXIT_CRITICAL(&bleMux);
 
-        if (introMode) introMode = false; 
+        localBuf[BLE_RX_BUF_SIZE - 1] = '\0';
+        String btMsg = String(localBuf);
+        btMsg.trim();
+        if (btMsg.length() == 0) return;
+
+        if (introMode) introMode = false;
         if (btMsg == "INPUT") return;
         
         pingActivity();
         
         if (!processVirtualCommand(btMsg)) {
-            bool inSetup = (currentState == PAGE_INIT_LANG || currentState == PAGE_INIT_FREQ || currentState == PAGE_INIT_NAME || currentState == PAGE_INIT_TIME);
+            bool inSetup = inSetupPage();
             
             if (inSetup) {
                 processInitInput(btMsg);
@@ -131,12 +149,10 @@ void checkBLEInput() {
                 fullRefreshNeeded = false; 
             }
             else if (currentState == PAGE_TEAM_NAME_EDIT) {
-                teamDraft = btMsg; 
-               if(teamDraft.length() > 16) teamDraft = teamDraft.substring(0, 16);
-                myTeam = teamDraft; 
-                if(myTeam.length() == 0) myTeam = "ALPHA"; 
-                prefs.putString("team", myTeam); 
-                currentState = PAGE_MENU_TEAM; 
+                teamDraft = btMsg;
+                if(teamDraft.length() > 16) teamDraft = teamDraft.substring(0, 16);
+                setTeamName(teamDraft);
+                currentState = PAGE_MENU_TEAM;
                 fullRefreshNeeded = true; 
                 requestUIUpdate = true; 
             }

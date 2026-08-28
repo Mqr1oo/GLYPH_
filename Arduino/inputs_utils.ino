@@ -28,12 +28,7 @@ bool processVirtualCommand(String cmd) {
         prefs.putFloat("freq", currentFreq);
         prefs.putString("version", OS_VERSION);
 
-        radio.begin(currentFreq);
-        radio.setSpreadingFactor(11);
-        radio.setBandwidth(125.0);   
-        radio.setCodingRate(8);        
-        radio.setSyncWord(0x12);
-        radio.setOutputPower(22);     
+        beginRadio(currentFreq);
 
         myName = "username";
         prefs.putString("name", myName);
@@ -55,21 +50,7 @@ bool processVirtualCommand(String cmd) {
             currentPowerMode = (PowerMode)mode;
             menuSelection = mode;
             
-            if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                if (currentPowerMode == NORMAL_MODE) {
-                    setCpuFrequencyMhz(80);
-                    if(gps_ok) { myGNSS.powerSaveMode(false); myGNSS.setMeasurementRate(1000); }
-                } else if (currentPowerMode == ECO_MODE) {
-                    if(gps_ok) { myGNSS.powerSaveMode(true); myGNSS.setMeasurementRate(10000); }
-                    setCpuFrequencyMhz(40);
-                } else if (currentPowerMode == STEALTH_MODE) {
-                    if(gps_ok) { myGNSS.powerSaveMode(true); myGNSS.setMeasurementRate(10000); }
-                    radio.standby();
-                    loraListening = false;
-                    setCpuFrequencyMhz(40);
-                }
-                xSemaphoreGive(i2cMutex);
-            }
+            applyPowerMode(currentPowerMode);
             
             requestUIUpdate = true;
             fullRefreshNeeded = false;
@@ -88,11 +69,7 @@ bool processVirtualCommand(String cmd) {
     }
 
     if (cmd.startsWith("CMD_TEAM:")) {
-        String tName = cmd.substring(9);
-        if(tName.length() > 16) tName = tName.substring(0, 16);
-        myTeam = tName;
-        if(myTeam.length() == 0) myTeam = "ALPHA";
-        prefs.putString("team", myTeam);
+        setTeamName(cmd.substring(9));
         requestUIUpdate = true;
         fullRefreshNeeded = false;
         notifyPhone("[SYS] Team updated");
@@ -110,7 +87,7 @@ bool processVirtualCommand(String cmd) {
     if (cmd == "AC@") { virt_comboAC = true; return true; }
     if (cmd == "BC@") { virt_comboBC = true; return true; }
 
-    bool inSetup = (currentState == PAGE_INIT_LANG || currentState == PAGE_INIT_FREQ || currentState == PAGE_INIT_NAME || currentState == PAGE_INIT_TIME );
+    bool inSetup = inSetupPage();
 
     if (!inSetup && cmd.length() == 2 && cmd[1] == '@') {
         char c = cmd[0];
@@ -137,7 +114,7 @@ bool processVirtualCommand(String cmd) {
 void processInitInput(String inputStr) {
     if (currentState == PAGE_INIT_LANG) {
         int l = inputStr.toInt();
-        if (l >= 0 && l <= 9) { 
+        if (l >= 0 && l < LANG_COUNT) {
             currentLang = l; 
             prefs.putInt("lang", currentLang); 
             currentState = PAGE_INIT_FREQ; 
@@ -151,31 +128,21 @@ void processInitInput(String inputStr) {
             currentFreq = 868.0; 
             prefs.putFloat("freq", currentFreq); 
             prefs.putString("version", OS_VERSION); 
-            radio.begin(currentFreq); 
-            radio.setSpreadingFactor(11); 
-            radio.setBandwidth(125.0);
-            radio.setCodingRate(8);
-            radio.setSyncWord(0x12); 
-            radio.setOutputPower(22); 
-            currentState = PAGE_INIT_NAME; 
-            fullRefreshNeeded = false; 
-            requestUIUpdate = true; 
-            notifyPhone("[GLYPH] 868MHz Set!"); 
+            beginRadio(currentFreq);
+            currentState = PAGE_INIT_NAME;
+            fullRefreshNeeded = false;
+            requestUIUpdate = true;
+            notifyPhone("[GLYPH] 868MHz Set!");
             sendInputPrompt(tr_prompt_name[currentLang]);
         } else if (inputStr.indexOf("915") != -1) {
             currentFreq = 915.0; 
             prefs.putFloat("freq", currentFreq); 
             prefs.putString("version", OS_VERSION); 
-            radio.begin(currentFreq); 
-            radio.setSpreadingFactor(11); 
-            radio.setBandwidth(125.0);
-            radio.setCodingRate(8);
-            radio.setSyncWord(0x12); 
-            radio.setOutputPower(22); 
-            currentState = PAGE_INIT_NAME; 
-            fullRefreshNeeded = false; 
-            requestUIUpdate = true; 
-            notifyPhone("[GLYPH] 915MHz Set!"); 
+            beginRadio(currentFreq);
+            currentState = PAGE_INIT_NAME;
+            fullRefreshNeeded = false;
+            requestUIUpdate = true;
+            notifyPhone("[GLYPH] 915MHz Set!");
             sendInputPrompt(tr_prompt_name[currentLang]);
         }
     }
@@ -226,18 +193,16 @@ void checkSerialInput() {
             float parsedLat = input.substring(0, commaIdx).toFloat(); 
             float parsedLon = input.substring(commaIdx + 1).toFloat();
             if (parsedLat != 0.0 && parsedLon != 0.0) { 
-                simActive = true; 
-                hasGpsFix = true; 
-                lastLat = parsedLat; 
-                lastLon = parsedLon; 
-                lastSIV = 12; 
-                lastAlt = 300.0 + random(-15, 15); 
+                simActive = true;
+                hasGpsFix = true;
+                setGpsPosition(parsedLat, parsedLon, 300.0f + random(-15, 15));
+                lastSIV = 12;
                 requestUIUpdate = true; 
                 return; 
             }
         }
 
-        bool inSetup = (currentState == PAGE_INIT_LANG || currentState == PAGE_INIT_FREQ || currentState == PAGE_INIT_NAME || currentState == PAGE_INIT_TIME);
+        bool inSetup = inSetupPage();
 
         if (inSetup) { 
             processInitInput(input); 
@@ -249,12 +214,10 @@ void checkSerialInput() {
             fullRefreshNeeded = false; 
         }
         else if (currentState == PAGE_TEAM_NAME_EDIT) { 
-            teamDraft = input; 
+            teamDraft = input;
             if(teamDraft.length() > 16) teamDraft = teamDraft.substring(0, 16);
-            myTeam = teamDraft; 
-            if(myTeam.length() == 0) myTeam = "ALPHA"; 
-            prefs.putString("team", myTeam); 
-            currentState = PAGE_MENU_TEAM; 
+            setTeamName(teamDraft);
+            currentState = PAGE_MENU_TEAM;
             fullRefreshNeeded = false; 
             requestUIUpdate = true; 
         }
@@ -265,6 +228,67 @@ void checkSerialInput() {
             executeSendMsg();
             msgDraft = tmp;
         }
+    }
+}
+
+// Cele doua editoare de text (mesaj si nume de echipa) aveau blocuri identice
+// de tratare a butoanelor; difereau doar prin variabila editata si prin limita
+// de lungime.
+void handleTextEditorButtons(bool pA, bool pB, bool pC, bool bLongPressed,
+                             String &draft, unsigned int maxLen) {
+    int nChars = (int)strlen(kbChars);
+
+    if (pA) {
+        kbCursor = (kbCursor > 0) ? kbCursor - 1 : nChars - 1;
+        requestUIUpdate = true; fullRefreshNeeded = false;
+    }
+    if (pC) {
+        kbCursor = (kbCursor < nChars - 1) ? kbCursor + 1 : 0;
+        requestUIUpdate = true; fullRefreshNeeded = false;
+    }
+    if (pB && !bLongPressed) {
+        char selected = kbChars[kbCursor];
+        if (selected == '<') {
+            if (draft.length() > 0) draft.remove(draft.length() - 1);
+        } else if (draft.length() < maxLen) {
+            draft += selected;
+        }
+        requestUIUpdate = true; fullRefreshNeeded = false;
+    }
+}
+
+// Selectorul de limba apare de doua ori: la prima pornire si in meniu.
+// Singura diferenta e pagina catre care se iese dupa confirmare.
+void handleLanguageButtons(bool pA, bool pB, bool pC, SystemState nextState) {
+    if (pA) {
+        if (tempLangSelection > 0) tempLangSelection--; else tempLangSelection = LANG_COUNT - 1;
+        requestUIUpdate = true; fullRefreshNeeded = false;
+    } else if (pC) {
+        if (tempLangSelection < LANG_COUNT - 1) tempLangSelection++; else tempLangSelection = 0;
+        requestUIUpdate = true; fullRefreshNeeded = false;
+    } else if (pB) {
+        currentLang = tempLangSelection;
+        prefs.putInt("lang", currentLang);
+        currentState = nextState;
+        fullRefreshNeeded = false;
+        requestUIUpdate = true;
+    }
+}
+
+// La fel pentru selectorul de fus orar - ambele variante ies in meniul principal.
+void handleUtcOffsetButtons(bool pA, bool pB, bool pC) {
+    if (pA) {
+        if (tempTimeSelection > -12) tempTimeSelection--;
+        requestUIUpdate = true; fullRefreshNeeded = false;
+    } else if (pC) {
+        if (tempTimeSelection < 14) tempTimeSelection++;
+        requestUIUpdate = true; fullRefreshNeeded = false;
+    } else if (pB) {
+        timeOffset = tempTimeSelection;
+        prefs.putInt("gmt", timeOffset);
+        currentState = PAGE_MENU_MAIN;
+        fullRefreshNeeded = false;
+        requestUIUpdate = true;
     }
 }
 
@@ -281,7 +305,7 @@ void handleButtons() {
     bool pB = latched_pB; latched_pB = false;
     bool pC = latched_pC; latched_pC = false;
     
-    bool inSetup = (currentState == PAGE_INIT_LANG || currentState == PAGE_INIT_FREQ || currentState == PAGE_INIT_NAME || currentState == PAGE_INIT_TIME );
+    bool inSetup = inSetupPage();
 
     static unsigned long comboABStart = 0; 
     static bool abTriggered = false;
@@ -314,9 +338,9 @@ void handleButtons() {
 
                     char baseDate[32];
                     if((gps_ok || simActive) && gpsTimeValid) {
-                        snprintf(baseDate, sizeof(baseDate), "%02d_%02d_%04d_%02d-%02d", 
-                            gpsDay, gpsMonth, gpsYear, 
-                            (gpsHour + timeOffset + 24) % 24, gpsMinute % 60);
+                        int y, mo, d, h, mi, sec;
+                        getLocalDateTime(y, mo, d, h, mi, sec);
+                        snprintf(baseDate, sizeof(baseDate), "%02d_%02d_%04d_%02d-%02d", d, mo, y, h, mi);
                     } else {
                         snprintf(baseDate, sizeof(baseDate), "OFFLINE_%lu", millis()/1000);
                     }
@@ -334,7 +358,9 @@ void handleButtons() {
                             }
                             
       
-                            strncpy(currentRecordDate, finalName.c_str(), sizeof(currentRecordDate));
+                            // FIX: strncpy nu pune '\0' daca sursa umple bufferul.
+                            strncpy(currentRecordDate, finalName.c_str(), sizeof(currentRecordDate) - 1);
+                            currentRecordDate[sizeof(currentRecordDate) - 1] = '\0';
 
 
                             String kmlPath = "/route_" + String(currentRecordDate) + ".kml";
@@ -351,7 +377,8 @@ void handleButtons() {
 
                             
                         }else {
-                            strncpy(currentRecordDate, baseDate, sizeof(currentRecordDate));
+                            strncpy(currentRecordDate, baseDate, sizeof(currentRecordDate) - 1);
+                            currentRecordDate[sizeof(currentRecordDate) - 1] = '\0';
                         }
 
                 } else {
@@ -361,8 +388,9 @@ void handleButtons() {
                         
                         char stopSuffix[32] = "";
                         if((gps_ok || simActive) && gpsTimeValid) {
-                            snprintf(stopSuffix, sizeof(stopSuffix), "_to_%02d-%02d", 
-                                (gpsHour + timeOffset + 24) % 24, gpsMinute % 60);
+                            int y, mo, d, h, mi, sec;
+                            getLocalDateTime(y, mo, d, h, mi, sec);
+                            snprintf(stopSuffix, sizeof(stopSuffix), "_to_%02d-%02d", h, mi);
                         } else {
                             snprintf(stopSuffix, sizeof(stopSuffix), "_to_STOP");
                         }
@@ -413,23 +441,50 @@ void handleButtons() {
             
             notifyPhone("[SYS] SOS BROADCASTING!");
 
-            display.setRotation(currentScreenRotation); 
-            display.fillScreen(GxEPD_WHITE); 
+            display.setRotation(currentScreenRotation);
+            display.fillScreen(GxEPD_WHITE);
+            display.fillRect(0, 0, display.width(), 20, GxEPD_BLACK);
+            u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+            u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
             u8g2Fonts.setFont(u8g2_font_helvB12_tf);
-            u8g2Fonts.setCursor((display.width() - u8g2Fonts.getUTF8Width("SOS ACTIVE"))/2, 50); 
-            u8g2Fonts.print("SOS ACTIVE");
-            display.updateWindow(0, 0, display.width(), display.height(), true); 
+            u8g2Fonts.setCursor((display.width() - u8g2Fonts.getUTF8Width("BROADCASTING SOS"))/2, 50);
+            u8g2Fonts.print("BROADCASTING SOS");
+            u8g2Fonts.setFont(u8g2_font_helvB10_tf);
+            u8g2Fonts.setCursor((display.width() - u8g2Fonts.getUTF8Width("FOR 10 SECONDS..."))/2, 80);
+            u8g2Fonts.print("FOR 10 SECONDS...");
+            display.updateWindow(0, 0, display.width(), display.height(), true);
+
             if (currentPowerMode != STEALTH_MODE) {
-                String fullMsg = myName + " SOS! LAT:" + String(lastLat, 5) + " LON:" + String(lastLon, 5);
-                radio.setSpreadingFactor(12);
+                double sLat, sLon;
+                getGpsPosition(sLat, sLon);
+                String fullMsg = myName + " SOS! LAT:" + String(sLat, 5) + " LON:" + String(sLon, 5);
+                String msgToSend = fullMsg + "|" + String(sLat, 5) + "," + String(sLon, 5);
+
+                // FIX CRITIC: aici se seta SF12 si nu se mai punea niciodata inapoi
+                // pe SF11. Dupa un SOS aparatul transmitea la SF12 in timp ce toti
+                // ceilalti ascultau pe SF11 -> nu mai comunica cu nimeni pana la reboot.
+                // Ramanem pe SF11, la fel ca restul sistemului.
+                radio.setSpreadingFactor(11);
+
                 unsigned long sosTimer = millis();
+                int txCount = 0;
                 while (millis() - sosTimer < 10000) {
-                    radio.transmit(fullMsg + "|" + String(lastLat, 5) + "," + String(lastLon, 5));
-                    delay(150); 
+                    radio.standby();
+                    radio.transmit(msgToSend);
+                    txCount++;
+                    // FIX: delay() blocheaza task-ul si risca watchdog; vTaskDelay cedeaza CPU.
+                    vTaskDelay(pdMS_TO_TICKS(100));
                 }
-                radio.startReceive(); loraListening = true;
+
+                String screenMsg = ">> [" + formatLocalTime() + "] " + fullMsg + " (x" + String(txCount) + ")";
+                pushLoraHistory(screenMsg);
+                logLoraMessage(screenMsg, secureMode);
+
+                notifyPhone("[TX SOS]: " + fullMsg);
+                radio.startReceive();
+                loraListening = true;
             }
-            
+
             requestUIUpdate = true; fullRefreshNeeded = false; pingActivity();
         }
         return; 
@@ -454,59 +509,14 @@ void handleButtons() {
             if (virt_comboAC || (millis() - comboACStart > 1000 && !acTriggered)) {
                 acTriggered = true;
                 virt_comboAC = false;
-                
-                display.setRotation(currentScreenRotation); 
-                display.fillScreen(GxEPD_WHITE); 
-                display.fillRect(0, 0, display.width(), 20, GxEPD_BLACK);
-                u8g2Fonts.setForegroundColor(GxEPD_BLACK); 
-                u8g2Fonts.setBackgroundColor(GxEPD_WHITE); 
-                u8g2Fonts.setFont(u8g2_font_helvB12_tf);
-                String sosTxt = "BROADCASTING SOS";
-                String sosTxt2 = "FOR 10 SECONDS...";
-                u8g2Fonts.setCursor((display.width() - u8g2Fonts.getUTF8Width(sosTxt.c_str()))/2, 50); 
-                u8g2Fonts.print(sosTxt.c_str());
-                u8g2Fonts.setFont(u8g2_font_helvB10_tf);
-                u8g2Fonts.setCursor((display.width() - u8g2Fonts.getUTF8Width(sosTxt2.c_str()))/2, 80); 
-                u8g2Fonts.print(sosTxt2.c_str());
-                display.updateWindow(0, 0, display.width(), display.height(), true); 
-                
-                if (currentPowerMode != STEALTH_MODE) {
-                    String fullMsg = myName + " SOS! LAT:" + String(lastLat, 5) + " LON:" + String(lastLon, 5);
-                    String msgData = fullMsg + "|" + String(lastLat, 5) + "," + String(lastLon, 5);
-                    String msgToSend = msgData;
 
-                    radio.setSpreadingFactor(11);
-                    
-                    unsigned long sosTimer = millis();
-                    int txCount = 0;
-                    while (millis() - sosTimer < 10000) {
-                        radio.standby();
-                        radio.transmit(msgToSend);
-                        txCount++;
-                        delay(100); 
-                    }
-
-                    String timeStr = "--:--";
-                    if((gps_ok || simActive) && gpsTimeValid) {
-                        char tBuf[16];
-                        snprintf(tBuf, sizeof(tBuf), "%02d:%02d", (gpsHour + timeOffset + 24) % 24, gpsMinute % 60);
-                        timeStr = String(tBuf);
-                    }
-                    String screenMsg = ">> [" + timeStr + "] " + fullMsg + " (x" + String(txCount) + ")";
-                    for(int i = MAX_LORA_MSGS - 1; i > 0; i--) {
-                        loraHistory[i] = loraHistory[i-1];
-                    }
-                    loraHistory[0] = screenMsg;
-                    if (loraMsgCount < MAX_LORA_MSGS) loraMsgCount++;
-
-                    notifyPhone("[TX SOS]: " + fullMsg);
-                    radio.startReceive();
-                    loraListening = true;
-                }
-
-                requestUIUpdate = true; 
-                fullRefreshNeeded = false;
-                pingActivity();
+                // FIX FUNCTIONAL MAJOR: A+C facea tot un SOS, identic cu B+C.
+                // README-ul si butonul "Shutdown" din aplicatia de telefon (care
+                // trimite exact "AC@") asteapta deep sleep. Apasarea butonului de
+                // shutdown din telefon declansa in realitate un SOS pe 10 secunde.
+                notifyPhone("[SYS] Shutting down...");
+                enterDeepSleep8Min(true);
+                // enterDeepSleep8Min() nu se intoarce niciodata.
             }
         }
         return; 
@@ -646,14 +656,12 @@ void handleButtons() {
         if (virt_longC) {
             if (currentState == PAGE_KEYBOARD) { 
                 executeSendMsg(); 
-            } else if (currentState == PAGE_TEAM_NAME_EDIT) { 
-                myTeam = teamDraft; 
-                if(myTeam.length() == 0) myTeam = "ALPHA"; 
-                prefs.putString("team", myTeam); 
-                currentState = PAGE_MENU_TEAM; 
-                fullRefreshNeeded = false; 
-                requestUIUpdate = true; 
-                pingActivity(); 
+            } else if (currentState == PAGE_TEAM_NAME_EDIT) {
+                setTeamName(teamDraft);
+                currentState = PAGE_MENU_TEAM;
+                fullRefreshNeeded = false;
+                requestUIUpdate = true;
+                pingActivity();
             }
             virt_longC = false;
         } else {
@@ -662,11 +670,9 @@ void handleButtons() {
                 if (currentState == PAGE_KEYBOARD) { 
                     cTimer = 0; 
                     executeSendMsg();
-                } else if (currentState == PAGE_TEAM_NAME_EDIT) { 
-                    myTeam = teamDraft; 
-                    if(myTeam.length() == 0) myTeam = "ALPHA"; 
-                    prefs.putString("team", myTeam); 
-                    currentState = PAGE_MENU_TEAM; 
+                } else if (currentState == PAGE_TEAM_NAME_EDIT) {
+                    setTeamName(teamDraft);
+                    currentState = PAGE_MENU_TEAM;
                     fullRefreshNeeded = false; 
                     requestUIUpdate = true; 
                     cTimer = 0; 
@@ -690,15 +696,7 @@ void handleButtons() {
     }
 
     if (currentState == PAGE_INIT_LANG) {
-        if (pA) { if (tempLangSelection > 0) tempLangSelection--; else tempLangSelection = 9; requestUIUpdate = true; fullRefreshNeeded = false; } 
-        else if (pC) { if (tempLangSelection < 9) tempLangSelection++; else tempLangSelection = 0; requestUIUpdate = true; fullRefreshNeeded = false; } 
-        else if (pB) { 
-            currentLang = tempLangSelection; 
-            prefs.putInt("lang", currentLang); 
-            currentState = PAGE_INIT_FREQ; 
-            fullRefreshNeeded = false; 
-            requestUIUpdate = true; 
-        }
+        handleLanguageButtons(pA, pB, pC, PAGE_INIT_FREQ);
     }
     else if (currentState == PAGE_INIT_FREQ) {
         if (pA) { currentFreq = 868.0; requestUIUpdate = true; fullRefreshNeeded = false; } 
@@ -706,26 +704,18 @@ void handleButtons() {
         else if (pB) { 
             prefs.putFloat("freq", currentFreq); 
             prefs.putString("version", OS_VERSION); 
-            radio.begin(currentFreq); 
-            radio.setSpreadingFactor(9); 
-            radio.setSyncWord(0x12); 
-            radio.setOutputPower(17); 
-            currentState = PAGE_INIT_NAME; 
+            // FIX: aici se seta SF9 / 17 dBm, iar peste tot in rest SF11 / 22 dBm.
+            // Un aparat configurat de la butoane nu putea comunica cu unul
+            // configurat prin serial/telefon.
+            beginRadio(currentFreq);
+            currentState = PAGE_INIT_NAME;
             fullRefreshNeeded = false; 
             requestUIUpdate = true; 
             sendInputPrompt(tr_prompt_name[currentLang]); 
         }
     }
     else if (currentState == PAGE_INIT_TIME) {
-        if (pA) { if (tempTimeSelection > -12) tempTimeSelection--; requestUIUpdate = true; fullRefreshNeeded = false; } 
-        else if (pC) { if (tempTimeSelection < 14) tempTimeSelection++; requestUIUpdate = true; fullRefreshNeeded = false; }
-        else if (pB) { 
-            timeOffset = tempTimeSelection; 
-            prefs.putInt("gmt", timeOffset); 
-            currentState = PAGE_MENU_MAIN;
-            fullRefreshNeeded = false;
-            requestUIUpdate = true; 
-        }
+        handleUtcOffsetButtons(pA, pB, pC);
     }
     // else if (currentState == PAGE_INIT_COMPASS) {
     //     if (pA || pB || pC) { 
@@ -769,18 +759,7 @@ void handleButtons() {
         if (pC) { secureMode = !secureMode; fullRefreshNeeded = false; requestUIUpdate = true; }
     }
     else if (currentState == PAGE_KEYBOARD) {
-        if (pA) { kbCursor = (kbCursor > 0) ? kbCursor - 1 : strlen(kbChars) - 1; requestUIUpdate = true; fullRefreshNeeded = false; }
-        if (pC) { kbCursor = (kbCursor < strlen(kbChars) - 1) ? kbCursor + 1 : 0; requestUIUpdate = true; fullRefreshNeeded = false; }
-        if (pB && !bLongPressed) { 
-            char selected = kbChars[kbCursor]; 
-            if(selected == '<') { 
-                if(msgDraft.length() > 0) msgDraft.remove(msgDraft.length()-1); 
-            } else if(msgDraft.length() < 30) {
-                msgDraft += selected; 
-            }
-            requestUIUpdate = true; 
-            fullRefreshNeeded = false; 
-        }
+        handleTextEditorButtons(pA, pB, pC, bLongPressed, msgDraft, 30);
     }
     else if (currentState == PAGE_MENU_TEAM) {
         if (pA) { currentState = PAGE_MENU_MAIN; fullRefreshNeeded = false; requestUIUpdate = true; }
@@ -794,18 +773,7 @@ void handleButtons() {
         }
     }
     else if (currentState == PAGE_TEAM_NAME_EDIT) {
-        if (pA) { kbCursor = (kbCursor > 0) ? kbCursor - 1 : strlen(kbChars) - 1; requestUIUpdate = true; fullRefreshNeeded = false; }
-        if (pC) { kbCursor = (kbCursor < strlen(kbChars) - 1) ? kbCursor + 1 : 0; requestUIUpdate = true; fullRefreshNeeded = false; }
-        if (pB && !bLongPressed) { 
-            char selected = kbChars[kbCursor]; 
-            if(selected == '<') { 
-                if(teamDraft.length() > 0) teamDraft.remove(teamDraft.length()-1); 
-            } else if(teamDraft.length() < 16) {
-                teamDraft += selected; 
-            }
-            requestUIUpdate = true; 
-            fullRefreshNeeded = false; 
-        }
+        handleTextEditorButtons(pA, pB, pC, bLongPressed, teamDraft, 16);
     }
     else if (currentState == PAGE_MENU_POWER) {
         if (pA) { if (menuSelection > 0) menuSelection--; else menuSelection = 2; requestUIUpdate = true; fullRefreshNeeded = false; } 
@@ -813,26 +781,7 @@ void handleButtons() {
         else if (pB) { 
             currentPowerMode = (PowerMode)menuSelection; 
             
-            if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                if (currentPowerMode == NORMAL_MODE) { 
-                    setCpuFrequencyMhz(80); 
-                    myGNSS.powerSaveMode(false); 
-                    myGNSS.setMeasurementRate(1000); 
-                }
-                else if (currentPowerMode == ECO_MODE) { 
-                    myGNSS.powerSaveMode(true); 
-                    myGNSS.setMeasurementRate(10000); 
-                    setCpuFrequencyMhz(40); 
-                }
-                else if (currentPowerMode == STEALTH_MODE) { 
-                    myGNSS.powerSaveMode(true); 
-                    myGNSS.setMeasurementRate(10000); 
-                    radio.standby(); 
-                    loraListening = false; 
-                    setCpuFrequencyMhz(40); 
-                }
-                xSemaphoreGive(i2cMutex);
-            }
+            applyPowerMode(currentPowerMode);
             
             currentState = PAGE_MENU_MAIN; 
             fullRefreshNeeded = false; 
@@ -840,26 +789,9 @@ void handleButtons() {
         }
     }
     else if (currentState == PAGE_MENU_LANG) {
-        if (pA) { if (tempLangSelection > 0) tempLangSelection--; else tempLangSelection = 9; requestUIUpdate = true; fullRefreshNeeded = false; } 
-        else if (pC) { if (tempLangSelection < 9) tempLangSelection++; else tempLangSelection = 0; requestUIUpdate = true; fullRefreshNeeded = false; } 
-        else if (pB) { 
-            currentLang = tempLangSelection; 
-            prefs.putInt("lang", currentLang); 
-            currentState = PAGE_MENU_MAIN; 
-            fullRefreshNeeded = false; 
-            requestUIUpdate = true; 
-        }
+        handleLanguageButtons(pA, pB, pC, PAGE_MENU_MAIN);
     }
     else if (currentState == PAGE_MENU_TIME) {
-
-        if (pA) { if (tempTimeSelection > -12) tempTimeSelection--; requestUIUpdate = true; fullRefreshNeeded = false; } 
-        else if (pC) { if (tempTimeSelection < 14) tempTimeSelection++; requestUIUpdate = true; fullRefreshNeeded = false; } 
-        else if (pB) { 
-            timeOffset = tempTimeSelection; 
-            prefs.putInt("gmt", timeOffset); 
-            currentState = PAGE_MENU_MAIN; 
-            fullRefreshNeeded = false; 
-            requestUIUpdate = true; 
-        }
+        handleUtcOffsetButtons(pA, pB, pC);
     }
 }
