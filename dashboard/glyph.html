@@ -195,11 +195,34 @@
 </div>
 
 <script>
+    // ------------------------------------------------------------------
+    // CODUL DE ACCES
+    //
+    // Un singur cod, pe care il alegi tu si il dai cui vrei - la fel ca inainte.
+    // Ce s-a schimbat e doar felul in care e stocat aici:
+    //
+    //   inainte: SHA-256(cod), fara salt
+    //            SHA-256 e proiectat sa fie rapid, deci un GPU incearca
+    //            miliarde de variante pe secunda; un cod scurt cade in secunde.
+    //
+    //   acum:    PBKDF2-HMAC-SHA256(cod, salt aleator, 300.000 de iteratii)
+    //            fiecare incercare costa ~0.3 s, deci un atac prin dictionar
+    //            devine nepractic. Saltul face inutile tabelele precalculate.
+    //
+    // Ca sa schimbi codul: deschide set-lock-code.html, scrie codul, si
+    // inlocuieste cele trei valori de mai jos cu ce iti afiseaza.
+    //
+    // Limita reala, ca sa fie clar: verificarea ruleaza in browserul
+    // vizitatorului. Tine departe pe cineva care nimereste linkul, nu pe cineva
+    // care deschide DevTools. Daca vrei sa fie de netrecut, trebuie verificat pe
+    // server - GitHub Pages nu poate, dar Cloudflare Access sau un Worker mic
+    // in fata paginii pot.
+    // ------------------------------------------------------------------
     const GLYPH_LOCK = {
-    salt: "5d82afb5e3d9e97759e2ff9f64fa8682",
-    hash: "253a7c3c7c32fd44a4b152b623a82f4b83544a326ad1104381c5ef5ae5acb230",
-    iterations: 300000
-};
+        salt: "",          // <-- din set-lock-code.html
+        hash: "",          // <-- din set-lock-code.html
+        iterations: 300000
+    };
 
     (function () {
         const UNLOCK_KEY = 'glyph_unlocked_v2';
@@ -341,6 +364,11 @@
                 <div class="data-box" style="grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center;">
                     <div class="data-label" style="margin:0;">RECORDING</div>
                     <div class="data-text" id="val-rec" style="font-size: 14px; color: var(--text-muted);">STOPPED</div>
+                </div>
+                <!-- Ce periferic nu merge pe aparat. Inainte, un radio mort era invizibil. -->
+                <div class="data-box" style="grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="data-label" style="margin:0;">HARDWARE</div>
+                    <div class="data-text" id="val-health" style="font-size: 14px; color: var(--text-muted);">--</div>
                 </div>
             </div>
         </div>
@@ -522,6 +550,7 @@
 
     const MAX_CHAT_MESSAGES = 300; // FIX: chat-ul crestea la infinit (memorie)
 
+    let lastHealthState = 'OK';
     let isSecureMode = false;
     let recentTxMessages = []; 
 
@@ -609,6 +638,9 @@
         document.getElementById('val-gps').innerText = "OFFLINE";
         document.getElementById('val-gps').style.color = "var(--text-muted)";
         document.getElementById('val-sats').innerText = "0";
+        const healthEl = document.getElementById('val-health');
+        if (healthEl) { healthEl.innerText = "--"; healthEl.style.color = "var(--text-muted)"; }
+        lastHealthState = 'OK';
         
         // Resetam statusul de inregistrare
         let recEl = document.getElementById('val-rec');
@@ -677,6 +709,23 @@
             return;
         }
         
+
+        // Aparatul raporteaza acum ce periferic nu merge. Inainte, daca radioul
+        // nu initializa, aplicatia si aparatul aratau amandoua perfect normal.
+        if (val.startsWith("SYS_HEALTH:")) {
+            const state = val.substring("SYS_HEALTH:".length).trim();
+            const el = document.getElementById('val-health');
+            if (el) {
+                const ok = (state === 'OK');
+                el.innerText = ok ? 'OK' : ('NO ' + state);
+                el.style.color = ok ? 'var(--text-main)' : 'var(--danger)';
+            }
+            if (state !== 'OK' && state !== lastHealthState) {
+                appendMsg('[SYS] Device reports: NO ' + state, 'rx');
+            }
+            lastHealthState = state;
+            return;
+        }
 
         if (val.startsWith("SYS_REC:")) {
             let isRec = val.split(":")[1] === "1";
