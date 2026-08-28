@@ -1,8 +1,12 @@
 {
-  "name": "GLYPH",
+  "id": "/glyph/",
+  "name": "GLYPH Tactical Communicator",
   "short_name": "GLYPH",
+  "description": "Companion app for the GLYPH off-grid LoRa communicator.",
   "start_url": "./glyph.html",
+  "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "background_color": "#050505",
   "theme_color": "#050505",
   "orientation": "portrait",
@@ -11,13 +15,19 @@
       "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any" 
+      "purpose": "any"
     },
     {
       "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

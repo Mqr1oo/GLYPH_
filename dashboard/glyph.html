@@ -182,44 +182,127 @@
 
 
 <div id="glyph-security-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#0d0d0d; color:#fff; z-index:999999; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family: 'JetBrains Mono', monospace, sans-serif;">
-    <div style="text-align: center; max-width: 320px; padding: 20px; background: #161618; border: 1px solid #2a2a2d; border-radius: 20px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);">
-        <h2 style="color:#0a84ff; letter-spacing: 2px; margin-bottom: 5px; font-weight: bold; font-size: 22px;">RESTRICTED AREA</h2>
-        <p style="color:#8e8e93; font-size: 12px; margin-bottom: 25px; font-family: 'Inter', sans-serif;">GLYPH OS PRO ACCESS REQUIRED</p>
-        <input type="password" id="glyph-pass-input" placeholder="Enter Authorization Code..." style="width: 100%; padding:14px; border:1px solid #2a2a2d; background:#0d0d0d; color:#fff; text-align:center; outline:none; border-radius: 12px; margin-bottom: 15px; font-family: 'Inter', sans-serif; font-size: 14px; box-sizing: border-box;">
-        <button onclick="unlockGlyph()" style="width: 100%; padding:14px; background:#0a84ff; color:#fff; border:none; border-radius: 12px; cursor:pointer; font-weight:600; font-family: 'Inter', sans-serif; transition: 0.2s; font-size: 14px; letter-spacing: 1px;">AUTHORIZE</button>
-        <p id="glyph-error-msg" style="color:#ff453a; margin-top:15px; font-size: 12px; display:none; font-family: 'Inter', sans-serif; font-weight: 500;">ACCESS DENIED. INVALID CODE.</p>
+    <div style="text-align: center; max-width: 340px; padding: 24px; background: #161618; border: 1px solid #2a2a2d; border-radius: 20px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);">
+        <h2 id="glyph-lock-title" style="color:#0a84ff; letter-spacing: 2px; margin-bottom: 5px; font-weight: bold; font-size: 22px;">GLYPH</h2>
+        <p id="glyph-lock-sub" style="color:#8e8e93; font-size: 12px; margin-bottom: 22px; font-family: 'Inter', sans-serif;">Enter your screen lock code</p>
+        <input type="password" inputmode="numeric" autocomplete="current-password" id="glyph-pass-input" placeholder="Code" style="width: 100%; padding:14px; border:1px solid #2a2a2d; background:#0d0d0d; color:#fff; text-align:center; outline:none; border-radius: 12px; margin-bottom: 12px; font-family: 'Inter', sans-serif; font-size: 16px;">
+        <input type="password" autocomplete="new-password" id="glyph-pass-confirm" placeholder="Repeat code" style="display:none; width: 100%; padding:14px; border:1px solid #2a2a2d; background:#0d0d0d; color:#fff; text-align:center; outline:none; border-radius: 12px; margin-bottom: 12px; font-family: 'Inter', sans-serif; font-size: 16px;">
+        <button id="glyph-unlock-btn" style="width: 100%; padding:14px; background:#0a84ff; color:#fff; border:none; border-radius: 12px; cursor:pointer; font-weight:600; font-family: 'Inter', sans-serif; transition: 0.2s; font-size: 14px; letter-spacing: 1px;">UNLOCK</button>
+        <p id="glyph-error-msg" style="color:#ff453a; margin-top:15px; font-size: 12px; display:none; font-family: 'Inter', sans-serif; font-weight: 500;">Wrong code.</p>
+        <p style="color:#5a5a5f; font-size: 11px; margin-top:18px; line-height:1.5; font-family: 'Inter', sans-serif;">
+            This is a screen lock for this phone only. It keeps the app closed if someone picks up your unlocked phone. It is not access control &mdash; anyone with the file can read it.
+        </p>
     </div>
 </div>
 
 <script>
+    // Ecranul de blocare - rescris.
+    //
+    // Ce era inainte: un SHA-256 fara salt, hardcodat in pagina, verificat local.
+    // Trei probleme: hash-ul era in sursa (deci codul se recupera din dictionar
+    // in secunde, SHA-256 fiind proiectat sa fie rapid), era acelasi pentru
+    // oricine descarca aplicatia, si se ocolea stergand o cheie din localStorage.
+    //
+    // Ce e acum: codul il alegi tu la prima pornire, se verifica cu PBKDF2-SHA256
+    // (300.000 de iteratii) peste un salt aleator per instalare, iar in pagina nu
+    // mai exista nimic hardcodat. Ce se salveaza local e doar verificatorul.
+    //
+    // Ce NU rezolva: e tot cod care ruleaza in browserul vizitatorului, deci
+    // ramane o blocare de ecran, nu control de acces. Textul de mai sus spune
+    // asta explicit, in loc de "RESTRICTED AREA / PRO ACCESS REQUIRED".
+    (function () {
+        const LOCK_KEY = 'glyph_lock_v2';
+        const PBKDF2_ITERATIONS = 300000;
 
-    const glyphCorrectHash = "098dc4ef60d43ae2c7fd7a5ca7658e6223a7528df221435733e6978492ae1409"; 
+        const overlay  = document.getElementById('glyph-security-overlay');
+        const input    = document.getElementById('glyph-pass-input');
+        const confirm  = document.getElementById('glyph-pass-confirm');
+        const button   = document.getElementById('glyph-unlock-btn');
+        const errorMsg = document.getElementById('glyph-error-msg');
+        const subtitle = document.getElementById('glyph-lock-sub');
 
-    if(localStorage.getItem('glyph_unlocked') === 'true') {
-        document.getElementById('glyph-security-overlay').style.display = 'none';
-    }
-
-    async function unlockGlyph() {
-        const pass = document.getElementById('glyph-pass-input').value;
-        const msg = document.getElementById('glyph-error-msg');
-        
-        const encoder = new TextEncoder();
-        const data = encoder.encode(pass);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const inputHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-        if (inputHash === glyphCorrectHash) {
-            document.getElementById('glyph-security-overlay').style.display = 'none';
-            localStorage.setItem('glyph_unlocked', 'true');
-        } else {
-            msg.style.display = 'block';
+        function readLock() {
+            try { return JSON.parse(localStorage.getItem(LOCK_KEY) || 'null'); }
+            catch (e) { return null; }
         }
-    }
 
-    document.getElementById('glyph-pass-input').addEventListener('keypress', function(e) {
-        if(e.key === 'Enter') unlockGlyph();
-    });
+        const stored = readLock();
+        const isFirstRun = !stored;
+
+        if (isFirstRun) {
+            subtitle.textContent = 'Choose a screen lock code';
+            confirm.style.display = 'block';
+            button.textContent = 'SET CODE';
+        }
+
+        function toHex(buf) {
+            return Array.from(new Uint8Array(buf))
+                .map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        async function derive(code, saltHex) {
+            const enc = new TextEncoder();
+            const salt = Uint8Array.from(saltHex.match(/../g).map(h => parseInt(h, 16)));
+            const key = await crypto.subtle.importKey(
+                'raw', enc.encode(code), 'PBKDF2', false, ['deriveBits']);
+            const bits = await crypto.subtle.deriveBits(
+                { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+                key, 256);
+            return toHex(bits);
+        }
+
+        // Comparatie in timp constant: o comparatie normala de siruri se opreste
+        // la primul caracter diferit si scurge informatie prin durata ei.
+        function constantTimeEquals(a, b) {
+            if (a.length !== b.length) return false;
+            let diff = 0;
+            for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+            return diff === 0;
+        }
+
+        function fail(text) {
+            errorMsg.textContent = text;
+            errorMsg.style.display = 'block';
+        }
+
+        async function submit() {
+            const code = input.value;
+            errorMsg.style.display = 'none';
+
+            if (code.length < 4) { fail('Use at least 4 characters.'); return; }
+
+            button.disabled = true;
+            button.textContent = 'WORKING...';
+
+            try {
+                if (isFirstRun) {
+                    if (code !== confirm.value) { fail('The two codes do not match.'); return; }
+                    const saltHex = toHex(crypto.getRandomValues(new Uint8Array(16)));
+                    const hash = await derive(code, saltHex);
+                    localStorage.setItem(LOCK_KEY, JSON.stringify({ salt: saltHex, hash, iterations: PBKDF2_ITERATIONS }));
+                    overlay.style.display = 'none';
+                } else {
+                    const hash = await derive(code, stored.salt);
+                    if (constantTimeEquals(hash, stored.hash)) {
+                        overlay.style.display = 'none';
+                    } else {
+                        fail('Wrong code.');
+                        input.value = '';
+                    }
+                }
+            } catch (e) {
+                fail('Could not check the code on this browser.');
+            } finally {
+                button.disabled = false;
+                button.textContent = isFirstRun ? 'SET CODE' : 'UNLOCK';
+            }
+        }
+
+        button.addEventListener('click', submit);
+        [input, confirm].forEach(el => el.addEventListener('keypress', e => {
+            if (e.key === 'Enter') submit();
+        }));
+    })();
 </script>
 <header>
     <div class="brand">
@@ -434,6 +517,17 @@
 
     function closeAlert() { document.getElementById('custom-modal').classList.remove('show'); }
 
+    // FIX (securitate): mesajele primite pe LoRa erau injectate in pagina cu
+    // innerHTML. Oricine din raza radio putea trimite un mesaj continand
+    // <img src=x onerror=...> si executa cod in aplicatia ta. Acum se escapeaza.
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    const MAX_CHAT_MESSAGES = 300; // FIX: chat-ul crestea la infinit (memorie)
+
     let isSecureMode = false;
     let recentTxMessages = []; 
 
@@ -449,8 +543,10 @@
             try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
         }
     }
+    // FIX: browserul elibereaza singur wakeLock cand ecranul se stinge si il pune
+    // pe null. Conditia veche cerea wakeLock !== null, deci nu se re-obtinea NICIODATA.
     document.addEventListener('visibilitychange', () => {
-        if (wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
+        if (isConnected && document.visibilityState === 'visible') requestWakeLock();
     });
 
     document.getElementById('btn-connect').addEventListener('click', async () => {
@@ -503,6 +599,11 @@
 
     function onDisconnected() {
         isConnected = false;
+        // FIX: rxChar/txChar ramaneau setate dupa deconectare, deci sendCmd()
+        // credea ca mai e conectat si arunca exceptii in loc sa avertizeze userul.
+        txChar = null;
+        rxChar = null;
+        bleServer = null;
         document.getElementById('status-dot').classList.remove('connected');
         const btn = document.getElementById('btn-connect');
         btn.innerText = "CONNECT";
@@ -628,7 +729,8 @@
                     badge: 'icon-192.png',
                     vibrate: [200, 100, 200],
                     requireInteraction: true,
-                    tag: 'msg-' + Date.now()
+                    tag: 'glyph-msg', // FIX: tag unic per mesaj + requireInteraction
+                    renotify: true    // umplea bara de notificari; acum se inlocuiesc
                 };
 
                 if ('serviceWorker' in navigator) {
@@ -655,14 +757,14 @@
             
             if (parsed.isSys) {
                 div.className = 'msg rx sys-alert';
-                div.innerHTML = `<span class="msg-username">[SYS]</span>${parsed.messageText}`;
+                div.innerHTML = `<span class="msg-username">[SYS]</span>${escapeHtml(parsed.messageText)}`;
             } else {
                 div.className = 'msg rx';
                 let displayName = parsed.username;
                 if (parsed.prefix) {
                     displayName = `[${parsed.prefix}] ${displayName}`;
                 }
-                div.innerHTML = `<span class="msg-username">${displayName}</span>${parsed.messageText}`;
+                div.innerHTML = `<span class="msg-username">${escapeHtml(displayName)}</span>${escapeHtml(parsed.messageText)}`;
             }
         } else {
             div.className = `msg ${type}`;
@@ -671,6 +773,7 @@
         }
         
         box.appendChild(div);
+        while (box.children.length > MAX_CHAT_MESSAGES) box.removeChild(box.firstChild);
         box.scrollTop = box.scrollHeight;
     }
 
@@ -682,21 +785,29 @@
         } catch(e) { console.error(e); return false; }
     }
 
-    function sendTextInput() {
+    // FIX: sendCmd este async, deci intoarce un Promise, care e MEREU truthy.
+    // "if (sendCmd(...))" era mereu adevarat -> mesajul aparea trimis in chat
+    // chiar si cand scrierea BLE esua. La fel in saveTeam/setPwr/setSecureMode.
+    async function sendTextInput() {
         const inp = document.getElementById('msg-input');
         const text = inp.value.trim();
-        if (text && sendCmd(text)) {
+        if (!text) return;
+        if (await sendCmd(text)) {
             appendMsg(text, 'tx');
             recentTxMessages.push(text);
             if (recentTxMessages.length > 10) recentTxMessages.shift();
             inp.value = '';
+        } else {
+            showAlert("Not sent", "The message could not be delivered to the device.");
         }
     }
     document.getElementById('msg-input').addEventListener('keypress', (e) => { if(e.key === 'Enter') sendTextInput(); });
 
-    function saveTeam() {
-        const team = document.getElementById('inp-team').value;
-        if(sendCmd("CMD_TEAM:" + team)) showAlert("Success", `Team channel set to: ${team}`);
+    async function saveTeam() {
+        const team = document.getElementById('inp-team').value.trim();
+        if (!team) { showAlert("Invalid", "Team name cannot be empty."); return; }
+        if (await sendCmd("CMD_TEAM:" + team)) showAlert("Success", `Team channel set to: ${escapeHtml(team)}`);
+        else showAlert("Not sent", "The device did not accept the command.");
     }
 
     function confirmPwr(mode) {
@@ -718,8 +829,8 @@
         showConfirm(title, text, () => { setPwr(mode, modeCode); });
     }
 
-    function setPwr(modeName, modeCode) {
-        if(sendCmd("CMD_PWR:" + modeCode)) {
+    async function setPwr(modeName, modeCode) {
+        if(await sendCmd("CMD_PWR:" + modeCode)) {
             document.getElementById('pwr-normal').classList.remove('active');
             document.getElementById('pwr-eco').classList.remove('active');
             document.getElementById('pwr-stealth').classList.remove('active');
@@ -739,8 +850,8 @@
         }
     }
 
-    function setSecureMode(state) {
-        if(sendCmd("CMD_SEC:" + state)) {
+    async function setSecureMode(state) {
+        if(await sendCmd("CMD_SEC:" + state)) {
             isSecureMode = (state === 'ON');
             document.getElementById('sec-pub').classList.remove('active');
             document.getElementById('sec-sec').classList.remove('active', 'secure-on');
@@ -798,7 +909,29 @@
         );
     }
 
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').then(reg => {
+            reg.update();
+            // FIX: versiunea veche a service worker-ului servea la infinit din cache,
+            // deci utilizatorii nu primeau niciodata o actualizare a aplicatiei.
+            if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            reg.addEventListener('updatefound', () => {
+                const sw = reg.installing;
+                if (!sw) return;
+                sw.addEventListener('statechange', () => {
+                    if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+                        sw.postMessage({ type: 'SKIP_WAITING' });
+                    }
+                });
+            });
+        }).catch(()=>{});
+        let reloaded = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (reloaded) return;
+            reloaded = true;
+            location.reload();
+        });
+    }
 </script>
 </body>
 </html>
