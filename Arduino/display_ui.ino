@@ -32,14 +32,24 @@ void drawHeader(String title, bool isMap = false) {
     
     int scrW = display.width(); 
     String timeStr = formatLocalTime();
-    
-    String batStr = String(getBatteryPercent()) + "%"; // FIX: formula unica de baterie
-    
+
+    // Buffer fix in loc de concatenare de String: antetul se redeseneaza la
+    // fiecare schimbare de ecran, deci era una dintre sursele constante de
+    // alocari din heap.
+    char batBuf[8];
+    snprintf(batBuf, sizeof(batBuf), "%s%d%%", batteryLow() ? "!" : "", getBatteryPercent());
+    String batStr = batBuf;
+
     String dirStr = getCardinalDirection(currentHeading, currentSpeed);
 
-    if (!sdDetected && !isMap) {
-        if (title == "GLYPH") title = "GLYPH - NO SD";
-        else title += " (NO SD)";
+    // Ce nu merge se vede in titlu. Inainte, daca radioul nu initializa,
+    // aparatul arata perfect normal si nu transmitea nimic.
+    if (!isMap) {
+        String bad = healthBadge();
+        if (bad.length() > 0) {
+            if (title == "GLYPH") title = "GLYPH - NO " + bad;
+            else title += " (NO " + bad + ")";
+        }
     }
 
     if (isMap) {
@@ -68,7 +78,7 @@ void drawHeader(String title, bool isMap = false) {
         u8g2Fonts.setBackgroundColor(GxEPD_BLACK);
         
         if (title.startsWith("GLYPH")) { 
-            if (!sdDetected) u8g2Fonts.setFont(u8g2_font_helvB10_tf); 
+            if (healthBadge().length() > 0) u8g2Fonts.setFont(u8g2_font_helvB10_tf); 
             else u8g2Fonts.setFont(u8g2_font_helvB12_tf); 
             u8g2Fonts.setCursor(6, 16); 
         } else { 
@@ -202,7 +212,7 @@ void renderMap() {
         mapCY = scrH / 2;
 
         if(currentKmlOverlay != "" && sdDetected) {
-            drawKMLOverlay(currentKmlOverlay, centerLat, centerLon, scale, cosLat, mapCX, mapCY, 0, 0, contentW, scrH);
+            drawKMLOverlay(centerLat, centerLon, scale, cosLat, mapCX, mapCY);
         }
 
         // if (isRecording && sdDetected && strlen(currentRecordDate) > 0) {
@@ -395,6 +405,14 @@ void renderClock() {
     snprintf(envInfo, sizeof(envInfo), "T: %.1fC/%.1fF | H: %.1f%%", currentTemp, tempF, currentHum); 
     u8g2Fonts.setCursor((contentW - u8g2Fonts.getUTF8Width(envInfo)) / 2, startY); 
     u8g2Fonts.print(envInfo);
+
+    if (batteryLow()) {
+        startY += 14;
+        u8g2Fonts.setFont(u8g2_font_helvB08_tf);
+        int bw = u8g2Fonts.getUTF8Width(tr_batt_low[currentLang]);
+        u8g2Fonts.setCursor((contentW - bw) / 2, startY);
+        u8g2Fonts.print(tr_batt_low[currentLang]);
+    }
 
     drawSidebarBtn(cx, 60, "A", "EXT");
 }
@@ -781,7 +799,7 @@ void updateUI() {
     if (currentState == STANDBY_MODE) return; 
 
     unsigned long currentMillis = millis();
-    bool periodicRefresh = (currentMillis - lastFullRefreshTime > 900000); 
+    bool periodicRefresh = (currentMillis - lastFullRefreshTime > FULL_REFRESH_INTERVAL_MS);
 
     switch (currentState) {
         case PAGE_MAP: renderMap(); break;

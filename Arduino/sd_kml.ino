@@ -65,12 +65,10 @@ void scanKMLFiles() {
     }
 }
 
-// Bucla de citire a unui KML de pe SD era copiata identic in loadKMLCache() si
-// in drawKMLOverlay(): acelasi parser de tag-uri, acelasi tokenizer, aceeasi
-// hranire a watchdog-ului la fiecare 250 de caractere. Singura diferenta reala
-// era ce se face cu fiecare coordonata. Acum bucla e una singura si primeste
-// un callback; newSegment marcheaza inceputul unui bloc <coordinates> nou.
+#include "glyph_kml_parser.h"
 
+// Deschide fisierul si lasa sablonul din glyph_kml_parser.h sa faca parsarea.
+// Sablonul e separat ca sa poata fi rulat si pe PC, peste un flux fals - vezi test/.
 static void forEachKmlPoint(String path, KmlPointFn onPoint) {
     if (path == "" || path == "[ NO OVERLAY ]" || !sdDetected) return;
 
@@ -81,60 +79,18 @@ static void forEachKmlPoint(String path, KmlPointFn onPoint) {
     File f = SD.open(path);
     if (!f) return;
 
-    bool inCoords = false;
-    bool newSegment = true;
-    String token = "";
-    int watchdogFeeder = 0;
-
-    // Interpreteaza un token "lon,lat[,alt]" si il paseaza mai departe.
-    auto emit = [&](String t) {
-        t.trim();
-        if (t.length() <= 3) return;
-        int c1 = t.indexOf(',');
-        if (c1 <= 0) return;
-        float lon = t.substring(0, c1).toFloat();
-        int c2 = t.indexOf(',', c1 + 1);
-        float lat = (c2 > 0) ? t.substring(c1 + 1, c2).toFloat()
-                             : t.substring(c1 + 1).toFloat();
-        if (lon == 0.0f || lat == 0.0f) return;
-        onPoint(lat, lon, newSegment);
-        newSegment = false;
-    };
-
-    while (f.available()) {
-        char c = f.read();
-
-        // Fara asta, un KML mare declanseaza watchdog-ul in timpul citirii.
-        watchdogFeeder++;
-        if (watchdogFeeder > 250) { yield(); watchdogFeeder = 0; }
-
-        if (c == '<') {
-            if (inCoords && token.length() > 0) { emit(token); token = ""; }
-            String tag = "<";
-            while (f.available()) {
-                c = f.read();
-                watchdogFeeder++;
-                if (watchdogFeeder > 250) { yield(); watchdogFeeder = 0; }
-                tag += c;
-                if (c == '>') break;
-            }
-            if (tag.indexOf("<coordinates>") != -1) {
-                inCoords = true;
-                newSegment = true;
-            } else if (tag.indexOf("</coordinates>") != -1) {
-                inCoords = false;
-                newSegment = true;
-            }
-        } else if (inCoords) {
-            if (isspace(c)) {
-                if (token.length() > 0) { emit(token); token = ""; }
-            } else {
-                if (token.length() < 64) token += c;
-            }
-        }
-    }
+    parseKmlStream(f, onPoint);
     f.close();
 }
+
+// Overlay-ul incarcat, tinut in RAM.
+//
+// Inainte, drawKMLOverlay() recitea tot fisierul de pe card la FIECARE
+// redesenare a hartii - o functie de desenare care face I/O de disc. Pe un
+// traseu lung asta insemna secunde bune de asteptare la fiecare apasare de buton.
+// Acum fisierul se citeste o singura data, la selectie.
+KmlPoint kmlCachePoints[MAX_KML_CACHE_POINTS];
+int  kmlCachePointCount = 0;
 
 void loadKMLCache() {
     kmlCacheMinLat = 90;
@@ -143,8 +99,15 @@ void loadKMLCache() {
     kmlCacheMaxLon = -180;
     kmlCacheDistance = 0.0;
     kmlCacheValid = false;
+    kmlCachePointCount = 0;
 
     float prevLat = -999, prevLon = -999;
+
+    // Un traseu poate avea mai multe puncte decat incap. In loc sa il taiem la
+    // jumatate, il subtiem: cand bufferul se umple, pastram fiecare al doilea
+    // punct si dublam pasul. Rezultatul e traseul intreg, cu mai putine detalii.
+    int stride = 1;
+    int seen   = 0;
 
     forEachKmlPoint(currentKmlOverlay, [&](float lat, float lon, bool newSegment) {
         if (lat < kmlCacheMinLat) kmlCacheMinLat = lat;
@@ -162,6 +125,31 @@ void loadKMLCache() {
         }
         prevLat = lat;
         prevLon = lon;
+
+        // Un inceput de segment se pastreaza intotdeauna: fara el, doua trasee
+        // separate ar aparea unite printr-o linie dreapta.
+        bool mustKeep = newSegment;
+
+        if (!mustKeep && (seen % stride) != 0) { seen++; return; }
+        seen++;
+
+        if (kmlCachePointCount >= MAX_KML_CACHE_POINTS) {
+            int kept = 0;
+            for (int i = 0; i < kmlCachePointCount; i++) {
+                if (i % 2 == 0 || kmlCachePoints[i].newSegment) {
+                    kmlCachePoints[kept++] = kmlCachePoints[i];
+                }
+            }
+            kmlCachePointCount = kept;
+            stride *= 2;
+
+            if (kmlCachePointCount >= MAX_KML_CACHE_POINTS) return; // buffer plin de inceputuri
+        }
+
+        kmlCachePoints[kmlCachePointCount].lat = lat;
+        kmlCachePoints[kmlCachePointCount].lon = lon;
+        kmlCachePoints[kmlCachePointCount].newSegment = newSegment;
+        kmlCachePointCount++;
     });
 
     if (kmlCacheMinLat != 90 && kmlCacheMaxLat != -90) {
@@ -169,16 +157,19 @@ void loadKMLCache() {
     }
 }
 
-void drawKMLOverlay(String path, double centerLat, double centerLon, float scale,
-                    float cosLat, int cx, int cy, int mx, int my, int mw, int mh) {
+// Deseneaza din RAM. Fara acces la card, deci poate fi apelata la fiecare cadru.
+void drawKMLOverlay(double centerLat, double centerLon, float scale,
+                    float cosLat, int cx, int cy) {
+    if (!kmlCacheValid || kmlCachePointCount == 0) return;
+
     bool isFirstPoint = true;
     int prevX = 0, prevY = 0;
 
-    forEachKmlPoint(path, [&](float lat, float lon, bool newSegment) {
-        if (newSegment) isFirstPoint = true;
+    for (int i = 0; i < kmlCachePointCount; i++) {
+        if (kmlCachePoints[i].newSegment) isFirstPoint = true;
 
-        long px_raw = cx + (lon - centerLon) * scale * cosLat;
-        long py_raw = cy - (lat - centerLat) * scale;
+        long px_raw = cx + (kmlCachePoints[i].lon - centerLon) * scale * cosLat;
+        long py_raw = cy - (kmlCachePoints[i].lat - centerLat) * scale;
 
         // Coordonatele foarte departe de ecran ar depasi intervalul lui int.
         if (px_raw >  30000) px_raw =  30000;
@@ -191,14 +182,14 @@ void drawKMLOverlay(String path, double centerLat, double centerLon, float scale
 
         // Un punct care cade exact peste cel anterior nu adauga nimic vizual,
         // dar costa un drawLine - la trasee lungi economiseste mult timp.
-        if (!isFirstPoint && px == prevX && py == prevY) return;
+        if (!isFirstPoint && px == prevX && py == prevY) continue;
 
         if (!isFirstPoint) display.drawLine(prevX, prevY, px, py, GxEPD_BLACK);
         else isFirstPoint = false;
 
         prevX = px;
         prevY = py;
-    });
+    }
 }
 
 void logSystemData(String sysLog) {
@@ -228,19 +219,20 @@ void logSystemData(String sysLog) {
 }
 
 void logGPS(double lat, double lon, float alt) {
-    if (lastAccuracy > 100.0) return;
+    if (lastAccuracy > GPS_MAX_ACCURACY_M) return;
 
     if (lastLoggedLat != 0.0 && lastLoggedLon != 0.0) { 
         double dKm = calculateDistance(lastLoggedLat, lastLoggedLon, lat, lon);
         double dMeters = dKm * 1000.0;
         
-        bool imuMoving = (millis() - lastPhysicalMovement < 5000);
-        
+        bool imuMoving = (millis() - lastPhysicalMovement < GPS_IMU_MOVING_WINDOW_MS);
+
         if (imuMoving) {
-            if (dMeters < 2.0) return;
+            if (dMeters < GPS_MOVING_MIN_STEP_M) return;
         } else {
-         
-            if (dMeters < 25.0) return;
+            // Fara miscare confirmata de IMU, pragul e mult mai mare: altfel am
+            // inregistra drift-ul GPS ca pe o plimbare.
+            if (dMeters < GPS_STATIC_MIN_STEP_M) return;
         }
         
         if (isRecording) {

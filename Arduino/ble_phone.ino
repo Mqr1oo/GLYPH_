@@ -61,32 +61,45 @@ void notifyPhone(String msg) {
 void sendTelemetryBLE() {
     static unsigned long lastBleTelemetry = 0;
     
-    if (deviceConnected && millis() - lastBleTelemetry > 5000) {
+    if (deviceConnected && millis() - lastBleTelemetry > BLE_TELEMETRY_INTERVAL_MS) {
         lastBleTelemetry = millis();
-        
-        // FIX: inainte se trimiteau 6 notificari BLE una dupa alta, fara pauza.
-        // Stiva BLE are o coada mica -> telefonul pierdea jumatate din ele.
-        // Acum se trimit esalonat, cu o pauza scurta intre ele.
-        notifyPhone("SYS_BATT:" + String(getBatteryPercent())); delay(15);
-        notifyPhone("SYS_SATS:" + String(lastSIV)); delay(15);
 
-        // FIX: cand nu exista fix, aplicatia astepta textul "NO FIX" (il verifica
-        // in handleIncomingData) dar firmware-ul nu il trimitea niciodata.
+        // Buffere fixe in loc de concatenari de String. Blocul asta ruleaza la
+        // fiecare 5 secunde cat timp telefonul e conectat - adica de sute de ori
+        // pe ora - deci era una dintre principalele surse de fragmentare a
+        // heap-ului, care se manifesta ca un reset "aleator" dupa multe ore.
+        char buf[64];
+
+        // Pauzele exista fiindca stiva BLE are o coada mica: sase notificari
+        // trimise una dupa alta se pierdeau pe drum.
+        snprintf(buf, sizeof(buf), "SYS_BATT:%d", getBatteryPercent());
+        notifyPhone(buf); delay(BLE_NOTIFY_GAP_MS);
+
+        snprintf(buf, sizeof(buf), "SYS_SATS:%u", (unsigned)lastSIV);
+        notifyPhone(buf); delay(BLE_NOTIFY_GAP_MS);
+
         if (hasGpsFix || simActive) {
             double bLat, bLon;
             getGpsPosition(bLat, bLon);
-            notifyPhone("SYS_GPS:" + String(bLat, 6) + "," + String(bLon, 6));
+            snprintf(buf, sizeof(buf), "SYS_GPS:%.6f,%.6f", bLat, bLon);
         } else {
-            notifyPhone("SYS_GPS:NO FIX");
+            // Aplicatia cauta exact textul asta; firmware-ul nu il trimitea niciodata.
+            snprintf(buf, sizeof(buf), "SYS_GPS:NO FIX");
         }
-        delay(15);
+        notifyPhone(buf); delay(BLE_NOTIFY_GAP_MS);
 
-        notifyPhone("SYS_ENV:" + String(currentTemp, 1) + "," + String(currentHum, 1)); delay(15);
+        snprintf(buf, sizeof(buf), "SYS_ENV:%.1f,%.1f", currentTemp, currentHum);
+        notifyPhone(buf); delay(BLE_NOTIFY_GAP_MS);
 
         if (gpsTimeValid) {
-            notifyPhone("SYS_TIME:" + formatLocalTime());
-            delay(15);
+            snprintf(buf, sizeof(buf), "SYS_TIME:%s", formatLocalTime().c_str());
+            notifyPhone(buf); delay(BLE_NOTIFY_GAP_MS);
         }
+
+        // Ce nu merge, raportat si catre telefon - nu doar pe ecran.
+        String bad = healthBadge();
+        snprintf(buf, sizeof(buf), "SYS_HEALTH:%s", bad.length() ? bad.c_str() : "OK");
+        notifyPhone(buf); delay(BLE_NOTIFY_GAP_MS);
 
         notifyPhone(isRecording ? "SYS_REC:1" : "SYS_REC:0");
     }
@@ -144,13 +157,13 @@ void checkBLEInput() {
             }
             else if (currentState == PAGE_KEYBOARD) { 
                 msgDraft = btMsg; 
-                if(msgDraft.length() > 30) msgDraft = msgDraft.substring(0, 30); 
+                if(msgDraft.length() > MAX_MESSAGE_LEN) msgDraft = msgDraft.substring(0, MAX_MESSAGE_LEN); 
                 requestUIUpdate = true; 
                 fullRefreshNeeded = false; 
             }
             else if (currentState == PAGE_TEAM_NAME_EDIT) {
                 teamDraft = btMsg;
-                if(teamDraft.length() > 16) teamDraft = teamDraft.substring(0, 16);
+                if(teamDraft.length() > MAX_TEAM_LEN) teamDraft = teamDraft.substring(0, MAX_TEAM_LEN);
                 setTeamName(teamDraft);
                 currentState = PAGE_MENU_TEAM;
                 fullRefreshNeeded = true; 
@@ -159,7 +172,7 @@ void checkBLEInput() {
             else if (currentPowerMode != STEALTH_MODE) {
                 String tmp = msgDraft;
                 msgDraft = btMsg;
-                if(msgDraft.length() > 30) msgDraft = msgDraft.substring(0, 30);
+                if(msgDraft.length() > MAX_MESSAGE_LEN) msgDraft = msgDraft.substring(0, MAX_MESSAGE_LEN);
                 executeSendMsg();
                 msgDraft = tmp;
             }

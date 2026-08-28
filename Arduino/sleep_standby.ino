@@ -1,4 +1,47 @@
 //file name:sleep_standby.ino
+
+// Un ecran scurt cu un singur mesaj, folosit inainte de opriri.
+void showShutdownNotice(const char* line) {
+    display.setRotation(currentScreenRotation);
+    display.fillScreen(GxEPD_WHITE);
+    u8g2Fonts.setForegroundColor(GxEPD_BLACK);
+    u8g2Fonts.setBackgroundColor(GxEPD_WHITE);
+    u8g2Fonts.setFont(u8g2_font_helvB12_tf);
+    int w = u8g2Fonts.getUTF8Width(line);
+    u8g2Fonts.setCursor((display.width() - w) / 2, display.height() / 2);
+    u8g2Fonts.print(line);
+    display.update();
+}
+
+// Inchide ordonat inregistrarea in curs.
+//
+// Fara asta, la caderea bateriei aparatul se opreste in mijlocul unei scrieri
+// pe SD si poate lasa fisierul KML trunchiat sau tabela FAT corupta - adica
+// exact traseul pe care tocmai l-ai inregistrat.
+void stopRecordingSafely() {
+    if (!isRecording) return;
+
+    isRecording = false;
+    notifyPhone("SYS_REC:0");
+
+    if (!sdDetected || strlen(currentRecordDate) == 0) return;
+
+    acquireSD();
+    String kmlPath = "/route_" + String(currentRecordDate) + ".kml";
+
+    char stopSuffix[32] = "";
+    if ((gps_ok || simActive) && gpsTimeValid) {
+        int y, mo, d, h, mi, sec;
+        getLocalDateTime(y, mo, d, h, mi, sec);
+        snprintf(stopSuffix, sizeof(stopSuffix), "_to_%02d-%02d", h, mi);
+    } else {
+        snprintf(stopSuffix, sizeof(stopSuffix), "_to_STOP");
+    }
+
+    String newKmlPath = "/route_" + String(currentRecordDate) + String(stopSuffix) + ".kml";
+    SD.rename(kmlPath.c_str(), newKmlPath.c_str());
+}
+
 void enterDeepSleep8Min(bool showUI) {
     if (showUI) {
     
@@ -16,7 +59,7 @@ void enterDeepSleep8Min(bool showUI) {
     display.powerDown(); 
     radio.sleep(); 
     
-    uint32_t sleepTimeMs = 8 * 60 * 1000;
+    uint32_t sleepTimeMs = DEEP_SLEEP_INTERVAL_MS;
     
     if(gps_ok) {
         if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -41,14 +84,18 @@ void evaluateSleep() {
     }
 
 
-    if (currentState == PAGE_INIT_LANG || currentState == PAGE_INIT_FREQ || 
-    currentState == PAGE_INIT_NAME || currentState == PAGE_INIT_TIME || 
-    isRecording) {
+    // Cat timp difuzeaza SOS, aparatul nu are voie sa adoarma.
+    if (sosActive()) {
+        sessionActivityTime = millis();
+        return;
+    }
+
+    if (inSetupPage() || isRecording) {
         sessionActivityTime = millis(); 
         return; 
     }
 
-    if (imu_ok && (millis() - lastPhysicalMovement < 30000)) {
+    if (imu_ok && (millis() - lastPhysicalMovement < MOVEMENT_KEEPALIVE_MS)) {
         sessionActivityTime = millis();
         return;
     }
@@ -56,7 +103,7 @@ void evaluateSleep() {
     unsigned long inactive = millis() - sessionActivityTime;
     
 
-    if(inactive > 240000 && currentState != STANDBY_MODE && !isRecording) {
+    if(inactive > STANDBY_AFTER_MS && currentState != STANDBY_MODE && !isRecording) {
         currentState = STANDBY_MODE; 
         display.setRotation(currentScreenRotation); 
         display.fillScreen(GxEPD_WHITE);
@@ -81,7 +128,7 @@ void evaluateSleep() {
         if(gps_ok) {
             if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 myGNSS.powerSaveMode(true);
-                myGNSS.setMeasurementRate(60000); 
+                myGNSS.setMeasurementRate(GPS_RATE_STANDBY_MS);
                 xSemaphoreGive(i2cMutex);
             }
         }
@@ -92,7 +139,7 @@ void evaluateSleep() {
         }
         BLEDevice::deinit(true); 
         radio.sleep(); 
-        setCpuFrequencyMhz(20); 
+        setCpuFrequencyMhz(CPU_MHZ_STANDBY);
 
  
         while (currentState == STANDBY_MODE) {
@@ -108,7 +155,7 @@ void evaluateSleep() {
             }
 
 
-            if (imu_ok && (millis() - lastPhysicalMovement < 2000)) {
+            if (imu_ok && (millis() - lastPhysicalMovement < STANDBY_WAKE_MOVEMENT_MS)) {
                 wakeUpTriggered = true;
             }
 
@@ -122,7 +169,7 @@ void evaluateSleep() {
         }
 
       
-        setCpuFrequencyMhz(80);
+        setCpuFrequencyMhz(CPU_MHZ_NORMAL);
         // FIX: dupa BLEDevice::deinit() stiva BLE e complet noua, dar flag-urile
         // ramaneau pe "conectat" -> checkBLEInput() apela startAdvertising() pe un
         // pServer vechi si telefonul nu mai reusea sa se reconecteze dupa standby.
@@ -138,10 +185,10 @@ void evaluateSleep() {
             if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 if (currentPowerMode == NORMAL_MODE) {
                     myGNSS.powerSaveMode(false);
-                    myGNSS.setMeasurementRate(1000);
+                    myGNSS.setMeasurementRate(GPS_RATE_NORMAL_MS);
                 } else { 
                     myGNSS.powerSaveMode(true);
-                    myGNSS.setMeasurementRate(10000); 
+                    myGNSS.setMeasurementRate(GPS_RATE_SAVING_MS);
                 }
                 xSemaphoreGive(i2cMutex);
             }
@@ -161,7 +208,7 @@ bool quickCheckActivity() {
     bool activityDetected = false;
     unsigned long checkStart = millis();
 
-    while (millis() - checkStart < 4000) { 
+    while (millis() - checkStart < WAKE_CHECK_WINDOW_MS) {
         if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
             
 

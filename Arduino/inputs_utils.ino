@@ -3,18 +3,6 @@ void pingActivity() {
     sessionActivityTime = millis(); 
 }
 
-double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const double R = 6371.0; 
-    double dLat = (lat2 - lat1) * M_PI / 180.0;
-    double dLon = (lon2 - lon1) * M_PI / 180.0;
-    
-    double a = sin(dLat / 2) * sin(dLat / 2) +
-               cos(lat1 * M_PI / 180.0) * cos(lat2 * M_PI / 180.0) *
-               sin(dLon / 2) * sin(dLon / 2);
-    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    return R * c;
-}
-
 double getTraveledDistance() {
     return sessionTotalDistance; 
 }
@@ -148,7 +136,7 @@ void processInitInput(String inputStr) {
     }
     else if (currentState == PAGE_INIT_NAME) {
         myName = inputStr; 
-        if(myName.length() > 16) myName = myName.substring(0, 16);
+        if(myName.length() > MAX_NAME_LEN) myName = myName.substring(0, MAX_NAME_LEN);
         prefs.putString("name", myName); 
         currentState = PAGE_INIT_TIME; 
         fullRefreshNeeded = false; 
@@ -209,13 +197,13 @@ void checkSerialInput() {
         }
         else if (currentState == PAGE_KEYBOARD) { 
             msgDraft = input; 
-            if(msgDraft.length() > 30) msgDraft = msgDraft.substring(0, 30); 
+            if(msgDraft.length() > MAX_MESSAGE_LEN) msgDraft = msgDraft.substring(0, MAX_MESSAGE_LEN); 
             requestUIUpdate = true; 
             fullRefreshNeeded = false; 
         }
         else if (currentState == PAGE_TEAM_NAME_EDIT) { 
             teamDraft = input;
-            if(teamDraft.length() > 16) teamDraft = teamDraft.substring(0, 16);
+            if(teamDraft.length() > MAX_TEAM_LEN) teamDraft = teamDraft.substring(0, MAX_TEAM_LEN);
             setTeamName(teamDraft);
             currentState = PAGE_MENU_TEAM;
             fullRefreshNeeded = false; 
@@ -224,7 +212,7 @@ void checkSerialInput() {
         else if (currentPowerMode != STEALTH_MODE) {
             String tmp = msgDraft;
             msgDraft = input;
-            if(msgDraft.length() > 30) msgDraft = msgDraft.substring(0, 30);
+            if(msgDraft.length() > MAX_MESSAGE_LEN) msgDraft = msgDraft.substring(0, MAX_MESSAGE_LEN);
             executeSendMsg();
             msgDraft = tmp;
         }
@@ -307,6 +295,15 @@ void handleButtons() {
     
     bool inSetup = inSetupPage();
 
+    // Orice apasare in timpul difuzarii SOS o opreste. Inainte nu aveai cum:
+    // bucla de 10 secunde nu returna in loop(), deci butoanele nu erau citite.
+    if (sosActive() && (pA || pB || pC || cA || cB || cC)) {
+        cancelSosBroadcast(true);
+        latched_pA = false; latched_pB = false; latched_pC = false;
+        pingActivity();
+        return;
+    }
+
     static unsigned long comboABStart = 0; 
     static bool abTriggered = false;
     
@@ -324,7 +321,7 @@ void handleButtons() {
                 comboABStart = millis();
             } 
             
-            if (virt_comboAB || (millis() - comboABStart > 1000 && !abTriggered)) {
+            if (virt_comboAB || (millis() - comboABStart > BTN_COMBO_HOLD_MS && !abTriggered)) {
                 abTriggered = true; 
                 virt_comboAB = false;
                 
@@ -435,7 +432,7 @@ void handleButtons() {
         if (virt_comboBC) { bcTriggered = true; } 
         else if (comboBCStart == 0) { comboBCStart = millis(); } 
         
-        if (virt_comboBC || (millis() - comboBCStart > 1000 && !bcTriggered)) {
+        if (virt_comboBC || (millis() - comboBCStart > BTN_COMBO_HOLD_MS && !bcTriggered)) {
             bcTriggered = true;
             virt_comboBC = false;
             
@@ -454,36 +451,11 @@ void handleButtons() {
             u8g2Fonts.print("FOR 10 SECONDS...");
             display.updateWindow(0, 0, display.width(), display.height(), true);
 
-            if (currentPowerMode != STEALTH_MODE) {
-                double sLat, sLon;
-                getGpsPosition(sLat, sLon);
-                String fullMsg = myName + " SOS! LAT:" + String(sLat, 5) + " LON:" + String(sLon, 5);
-                String msgToSend = fullMsg + "|" + String(sLat, 5) + "," + String(sLon, 5);
-
-                // FIX CRITIC: aici se seta SF12 si nu se mai punea niciodata inapoi
-                // pe SF11. Dupa un SOS aparatul transmitea la SF12 in timp ce toti
-                // ceilalti ascultau pe SF11 -> nu mai comunica cu nimeni pana la reboot.
-                // Ramanem pe SF11, la fel ca restul sistemului.
-                radio.setSpreadingFactor(11);
-
-                unsigned long sosTimer = millis();
-                int txCount = 0;
-                while (millis() - sosTimer < 10000) {
-                    radio.standby();
-                    radio.transmit(msgToSend);
-                    txCount++;
-                    // FIX: delay() blocheaza task-ul si risca watchdog; vTaskDelay cedeaza CPU.
-                    vTaskDelay(pdMS_TO_TICKS(100));
-                }
-
-                String screenMsg = ">> [" + formatLocalTime() + "] " + fullMsg + " (x" + String(txCount) + ")";
-                pushLoraHistory(screenMsg);
-                logLoraMessage(screenMsg, secureMode);
-
-                notifyPhone("[TX SOS]: " + fullMsg);
-                radio.startReceive();
-                loraListening = true;
-            }
+            // Difuzarea nu se mai face intr-o bucla care tine aparatul ostatic
+            // 10 secunde. startSosBroadcast() doar porneste, iar
+            // serviceSosBroadcast() trimite cate un pachet pe tura de loop().
+            // Intre pachete, butoanele si ecranul raspund normal - si poti anula.
+            startSosBroadcast();
 
             requestUIUpdate = true; fullRefreshNeeded = false; pingActivity();
         }
@@ -506,7 +478,7 @@ void handleButtons() {
                 comboACStart = millis();
             } 
             
-            if (virt_comboAC || (millis() - comboACStart > 1000 && !acTriggered)) {
+            if (virt_comboAC || (millis() - comboACStart > BTN_COMBO_HOLD_MS && !acTriggered)) {
                 acTriggered = true;
                 virt_comboAC = false;
 
@@ -540,7 +512,7 @@ void handleButtons() {
                 if (holdMapExitA == 0) { 
                     holdMapExitA = millis(); 
                     handledLongA = false; 
-                } else if (!handledLongA && millis() - holdMapExitA > 5000) { 
+                } else if (!handledLongA && millis() - holdMapExitA > BTN_KML_EXIT_HOLD_MS) { 
                     handledLongA = true; 
                     currentState = PAGE_MAP; 
                     fullRefreshNeeded = false; 
@@ -600,10 +572,10 @@ void handleButtons() {
             if (bTimer == 0) { 
                 bTimer = millis(); 
                 bLongPressed = false; 
-            } else if (millis() - bTimer > 600) { 
+            } else if (millis() - bTimer > BTN_DELETE_HOLD_MS) { 
                 bLongPressed = true; 
                 
-                if ((currentState == PAGE_KEYBOARD || currentState == PAGE_TEAM_NAME_EDIT) && (millis() - lastDeleteTime > 150)) {
+                if ((currentState == PAGE_KEYBOARD || currentState == PAGE_TEAM_NAME_EDIT) && (millis() - lastDeleteTime > BTN_DELETE_REPEAT_MS)) {
                     lastDeleteTime = millis();
                     if (currentState == PAGE_KEYBOARD && msgDraft.length() > 0) msgDraft.remove(msgDraft.length()-1);
                     else if (currentState == PAGE_TEAM_NAME_EDIT && teamDraft.length() > 0) teamDraft.remove(teamDraft.length()-1);
@@ -630,7 +602,7 @@ void handleButtons() {
             virt_longA = false;
         } else {
             if(aTimer == 0) aTimer = millis();
-            if(millis() - aTimer > 800) { 
+            if(millis() - aTimer > BTN_LONG_PRESS_MS) { 
                 if (currentState == PAGE_KEYBOARD) { 
                     msgDraft = ""; 
                     currentState = PAGE_LORA; 
@@ -666,7 +638,7 @@ void handleButtons() {
             virt_longC = false;
         } else {
             if(cTimer == 0) cTimer = millis();
-            if(millis() - cTimer > 800) { 
+            if(millis() - cTimer > BTN_LONG_PRESS_MS) { 
                 if (currentState == PAGE_KEYBOARD) { 
                     cTimer = 0; 
                     executeSendMsg();
@@ -759,7 +731,7 @@ void handleButtons() {
         if (pC) { secureMode = !secureMode; fullRefreshNeeded = false; requestUIUpdate = true; }
     }
     else if (currentState == PAGE_KEYBOARD) {
-        handleTextEditorButtons(pA, pB, pC, bLongPressed, msgDraft, 30);
+        handleTextEditorButtons(pA, pB, pC, bLongPressed, msgDraft, MAX_MESSAGE_LEN);
     }
     else if (currentState == PAGE_MENU_TEAM) {
         if (pA) { currentState = PAGE_MENU_MAIN; fullRefreshNeeded = false; requestUIUpdate = true; }
@@ -773,7 +745,7 @@ void handleButtons() {
         }
     }
     else if (currentState == PAGE_TEAM_NAME_EDIT) {
-        handleTextEditorButtons(pA, pB, pC, bLongPressed, teamDraft, 16);
+        handleTextEditorButtons(pA, pB, pC, bLongPressed, teamDraft, MAX_TEAM_LEN);
     }
     else if (currentState == PAGE_MENU_POWER) {
         if (pA) { if (menuSelection > 0) menuSelection--; else menuSelection = 2; requestUIUpdate = true; fullRefreshNeeded = false; } 
@@ -794,4 +766,99 @@ void handleButtons() {
     else if (currentState == PAGE_MENU_TIME) {
         handleUtcOffsetButtons(pA, pB, pC);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Difuzarea SOS
+// ---------------------------------------------------------------------------
+//
+// Varianta veche era o bucla while care transmitea 10 secunde. In tot acel timp
+// loop() nu mai rula: butoanele nu raspundeau, ecranul era inghetat si nu aveai
+// cum sa opresti difuzarea daca ai apasat din greseala.
+//
+// Acum e o stare: startSosBroadcast() o porneste, serviceSosBroadcast() e
+// apelata din loop() si trimite cel mult un pachet pe tura. Intre pachete,
+// restul sistemului merge normal.
+
+static bool          sosRunning     = false;
+static unsigned long sosStartedAt   = 0;
+static unsigned long sosLastPacket  = 0;
+static int           sosPacketCount = 0;
+static String        sosPayload     = "";
+static String        sosDisplayMsg  = "";
+
+bool sosActive() { return sosRunning; }
+
+void startSosBroadcast() {
+    if (currentPowerMode == STEALTH_MODE) {
+        notifyPhone("[SYS] SOS blocked: STEALTH mode");
+        return;
+    }
+    if (!health.radioOk) {
+        notifyPhone("[SYS] SOS failed: radio unavailable");
+        pushLoraHistory("!! [" + formatLocalTime() + "] SOS NOT SENT - NO RADIO");
+        return;
+    }
+    if (sosRunning) return;
+
+    double sLat, sLon;
+    getGpsPosition(sLat, sLon);
+
+    sosDisplayMsg = myName + " SOS! LAT:" + String(sLat, 5) + " LON:" + String(sLon, 5);
+    sosPayload    = sosDisplayMsg + "|" + String(sLat, 5) + "," + String(sLon, 5);
+
+    // Ramanem pe acelasi spreading factor ca restul sistemului. Varianta veche
+    // trecea pe SF12 si nu il mai punea niciodata inapoi, deci dupa un SOS
+    // aparatul transmitea pe un SF pe care nimeni nu il asculta, pana la reboot.
+    radio.setSpreadingFactor(LORA_SPREADING_FACTOR);
+
+    sosRunning     = true;
+    sosStartedAt   = millis();
+    sosLastPacket  = 0;
+    sosPacketCount = 0;
+
+    notifyPhone("[SYS] SOS BROADCASTING!");
+}
+
+// Oprire manuala: orice apasare in timpul difuzarii.
+void cancelSosBroadcast(bool byUser) {
+    if (!sosRunning) return;
+    sosRunning = false;
+
+    String note = byUser ? " (cancelled after x" : " (x";
+    String screenMsg = ">> [" + formatLocalTime() + "] " + sosDisplayMsg +
+                       note + String(sosPacketCount) + ")";
+    pushLoraHistory(screenMsg);
+    logLoraMessage(screenMsg, secureMode);
+    notifyPhone("[TX SOS]: " + sosDisplayMsg);
+
+    radio.startReceive();
+    loraListening = true;
+
+    requestUIUpdate = true;
+    fullRefreshNeeded = false;
+}
+
+void serviceSosBroadcast() {
+    if (!sosRunning) return;
+
+    if (millis() - sosStartedAt >= SOS_BROADCAST_MS) {
+        cancelSosBroadcast(false);
+        return;
+    }
+
+    if (sosLastPacket != 0 && millis() - sosLastPacket < SOS_PACKET_GAP_MS) return;
+
+    String packet = buildPacket(MSG_SOS, sosPayload, secureMode);
+    if (packet.length() == 0) {          // criptarea a esuat
+        sosRunning = false;
+        notifyPhone("[SYS] SOS encryption failed");
+        return;
+    }
+
+    radio.standby();
+    int st = radio.transmit(packet);
+    if (st == RADIOLIB_ERR_NONE) sosPacketCount++;
+
+    sosLastPacket = millis();
 }

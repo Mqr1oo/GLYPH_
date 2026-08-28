@@ -69,6 +69,10 @@ bool mag_ok = false;
 bool gps_ok = false;
 bool sdDetected = false;
 
+// Ce merge si ce nu. Definit aici fiindca sketch-ul principal e concatenat
+// primul de builder-ul Arduino, deci simbolul trebuie sa existe de la inceput.
+DeviceHealth health;
+
 TaskHandle_t buttonTaskHandle;
 TaskHandle_t sensorTaskHandle;
 SemaphoreHandle_t i2cMutex;
@@ -96,7 +100,6 @@ RTC_DATA_ATTR int mapZoomLevel = 1;
 bool simActive = false;
 
 String currentKmlOverlay = ""; 
-const int MAX_KML_FILES = 12;
 String kmlFiles[MAX_KML_FILES];
 int kmlFileCount = 0;
 int kmlSelectionIndex = 0;
@@ -133,7 +136,6 @@ RTC_DATA_ATTR double lastRenderedLon = 0.0;
 RTC_DATA_ATTR double lastLoggedLat = 0.0; 
 RTC_DATA_ATTR double lastLoggedLon = 0.0;
 
-const int MAX_TEAMMATES = 5;
 Teammate teammates[MAX_TEAMMATES];
 int teammateCount = 0;
 
@@ -191,6 +193,9 @@ const char* tr_sensors_title[11] = { "SENZORI", "SENSORS", "SENSORES", "CAPTEURS
 const char* tr_route_start[11] = { "TRASEU INCEPUT", "ROUTE STARTED", "RUTA INICIADA", "ROUTE DEMARREE", "ROUTE GESTARTET", "PERCORSO INIZIATO", "ROTA INICIADA", "TRASA ROZPOCZETA", "ROUTE GESTART", "ROTA BASLADI", "LU XIAN KAI SHI" };
 const char* tr_route_stop[11] = { "TRASEU OPRIT", "ROUTE STOPPED", "RUTA DETENIDA", "ROUTE ARRETEE", "ROUTE GESTOPPT", "PERCORSO FERMATO", "ROTA PARADA", "TRASA ZATRZYMANA", "ROUTE GESTOPT", "ROTA DURDURULDU", "LU XIAN TING ZHI" };
 const char* tr_rebooting[11] = { "REPORNIRE...", "REBOOTING...", "REINICIANDO...", "REDEMARRAGE...", "NEUSTART...", "RIAVVIO...", "REINICIANDO...", "PONOWNE URUCH...", "HERSTARTEN...", "YENIDEN BASLIYOR...", "CHONG QI ZHONG..." };
+const char* tr_batt_empty[11] = { "BATERIE DESCARCATA", "BATTERY EMPTY", "BATERIA VACIA", "BATTERIE VIDE", "AKKU LEER", "BATTERIA SCARICA", "BATERIA VAZIA", "BATERIA ROZLADOWANA", "BATTERIJ LEEG", "PIL BITTI", "DIAN CHI MEI DIAN" };
+const char* tr_batt_low[11] = { "BATERIE SCAZUTA", "LOW BATTERY", "BATERIA BAJA", "BATTERIE FAIBLE", "AKKU SCHWACH", "BATTERIA BASSA", "BATERIA FRACA", "NISKI POZIOM BATERII", "BATTERIJ BIJNA LEEG", "PIL AZ", "DIAN LIANG DI" };
+const char* tr_saving[11] = { "SE SALVEAZA...", "SAVING...", "GUARDANDO...", "SAUVEGARDE...", "SPEICHERN...", "SALVATAGGIO...", "SALVANDO...", "ZAPISYWANIE...", "OPSLAAN...", "KAYDEDILIYOR...", "BAO CUN ZHONG..." };
 const char* tr_standby[11] = { "STANDBY", "STANDBY", "EN ESPERA", "VEILLE", "STANDBY", "STANDBY", "EM ESPERA", "CZUWANIE", "STANDBY", "BEKLEME", "DAI JI" };
 const char* tr_use_phone[11] = { "Tel. Keyboard Activ", "Phone keyboard active", "Teclado tel. activo", "Clavier tel. actif", "Handy-Tastatur aktiv", "Tastiera tel. attiva", "Teclado tel. ativo", "Klawiatura tel. akt.", "Telefoon toetsenbord", "Telefon klavyesi aktif", "Shou ji jian pan" };
 
@@ -208,7 +213,6 @@ String teamDraft = "";
 const char* kbChars = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.?!@<"; 
 int kbCursor = 0;
 
-const int MAX_LORA_MSGS = 5;
 String loraHistory[MAX_LORA_MSGS];
 int loraMsgCount = 0;
 bool loraListening = false;
@@ -231,7 +235,6 @@ volatile char bleRxBuffer[BLE_RX_BUF_SIZE] = {0};
 volatile bool bleDataReceived = false;
 portMUX_TYPE bleMux = portMUX_INITIALIZER_UNLOCKED;
 
-const int MAX_BREADCRUMBS = 350; 
 RTC_DATA_ATTR GeoPoint breadcrumbs[MAX_BREADCRUMBS];     
 RTC_DATA_ATTR int breadcrumbIdx = 0;
 
@@ -271,10 +274,31 @@ void logSystemData(String type);
 void buttonTask(void * pvParameters);
 void sensorTask(void * pvParameters);
 int getBatteryPercent();
+void sampleBattery();
+bool batteryLow();
+void checkBatteryCutoff();
+void stopRecordingSafely();
+void showShutdownNotice(const char* line);
+String healthBadge();
 bool inSetupPage();
+double calculateDistance(double lat1, double lon1, double lat2, double lon2);
+void enterDeepSleep8Min(bool showUI);
+void cancelSosBroadcast(bool byUser);
+void acquireSD();
+String cryptMsg(String input);
+String decryptMsg(String input);
+void getAESKey(byte* key);
 void applyRadioProfile();
-void beginRadio(float freq);
+int beginRadio(float freq);
 void applyPowerMode(PowerMode mode);
+void upsertTeammate(const String &name, double lat, double lon, uint32_t counter);
+GlyphMessage parsePacket(const String &raw);
+String buildPacket(uint8_t msgType, const String &payload, bool secure);
+bool isReplay(const String &sender, uint32_t counter, bool authentic);
+String decryptLegacyCBC(String input);
+void serviceSosBroadcast();
+void startSosBroadcast();
+bool sosActive();
 void pushLoraHistory(String screenMsg);
 void setTeamName(String name);
 void invalidateTeamKey();
@@ -285,7 +309,6 @@ void getLocalDateTime(int &year, int &month, int &day, int &hour, int &minute, i
 String formatLocalTime();
 String formatLocalDateFile();
 String formatLocalTimeSec();
-String decryptPacket(byte marker, String payload);
 
 void setup() {
     Serial.begin(115200); 
@@ -371,7 +394,9 @@ void setup() {
     }
     esp_sleep_enable_ext1_wakeup(1ULL << BTN_PIN, ESP_EXT1_WAKEUP_ALL_LOW);
     
-    batVoltage = (analogRead(PIN_BAT_ADC) / 4095.0) * 7.26; 
+    // Media peste mai multe citiri, cu calibrarea din eFuse.
+    // Inainte: o singura analogRead() cruda, zgomotoasa si neliniara.
+    sampleBattery();
     pingActivity();
     
     String savedVersion = prefs.getString("version", "");
@@ -383,11 +408,24 @@ void setup() {
     myName = prefs.getString("name", ""); 
     myTeam = prefs.getString("team", "ALPHA"); 
     
-    if(currentPowerMode != NORMAL_MODE) setCpuFrequencyMhz(40); 
-    else setCpuFrequencyMhz(80);
-    
-    beginRadio(currentFreq);
-    radio.standby();
+    if(currentPowerMode != NORMAL_MODE) setCpuFrequencyMhz(CPU_MHZ_SAVING);
+    else setCpuFrequencyMhz(CPU_MHZ_NORMAL);
+
+    int radioState = beginRadio(currentFreq);
+    if (radioState != RADIOLIB_ERR_NONE) {
+        Serial.printf("[GLYPH OS] RADIO INIT FAILED, code %d\n", radioState);
+    } else {
+        radio.standby();
+    }
+
+    // Adunam ce merge si ce nu, o singura data, ca sa putem arata utilizatorului
+    // un aparat "degradat" in loc sa-l lasam sa creada ca totul e in regula.
+    health.gpsOk     = gps_ok;
+    health.imuOk     = imu_ok;
+    health.shtOk     = sht_ok;
+    health.buttonsOk = buttons_ok;
+    checkSDHotplug();
+    health.sdOk = sdDetected;
 
     if (savedVersion != OS_VERSION) { 
         currentLang = 1; 
@@ -415,6 +453,7 @@ void setup() {
 void loop() {
     checkSerialInput(); 
     handleButtons(); 
+    serviceSosBroadcast();   // difuzarea SOS avanseaza cate un pachet pe tura
     evaluateSleep(); 
     checkBLEInput(); 
     sendTelemetryBLE(); 
@@ -428,76 +467,52 @@ void loop() {
     }
 
     if (loraListening && currentPowerMode != STEALTH_MODE && digitalRead(RADIO_DIO1) == HIGH) {
-        String raw; 
-        int state = radio.readData(raw); 
-        
+        String raw;
+        int state = radio.readData(raw);
+
         if (state == RADIOLIB_ERR_NONE && raw.length() > 0) {
-            // 0xFE = AES-GCM (nou), 0xFF = AES-CBC (vechi, doar la citire)
-            uint8_t marker = (uint8_t)raw[0];
-            bool isEncrypted = (marker == 0xFE || marker == 0xFF);
-            if (secureMode && !isEncrypted) { radio.startReceive(); return; }
-            if (!secureMode && isEncrypted) { radio.startReceive(); return; }
+            GlyphMessage msg = parsePacket(raw);
 
-            String finalMsg = isEncrypted ? decryptPacket(marker, raw.substring(1)) : raw;
-            // Mesaj care nu trece verificarea de autenticitate: il ignoram.
-            if (isEncrypted && finalMsg.length() == 0) { radio.startReceive(); return; }
+            // Filtrul de mod: in modul securizat aratam doar mesaje autentificate,
+            // in modul public doar pe cele necriptate.
+            bool modeMatches = (secureMode == msg.authentic);
 
-            int pipeIdx = finalMsg.lastIndexOf('|');
-            if (pipeIdx > 0) {
-                String coords = finalMsg.substring(pipeIdx + 1); 
-                int commaIdx = coords.indexOf(',');
-                if (commaIdx > 0) {
-                    double tLat = coords.substring(0, commaIdx).toDouble(); 
-                    double tLon = coords.substring(commaIdx + 1).toDouble(); 
-                    String tName = "";
-                    int colonIdx = finalMsg.indexOf(':'); 
-                    if (colonIdx > 0) tName = finalMsg.substring(0, colonIdx);
-                    if (tName != "") {
-                        bool found = false; 
-                        for (int i = 0; i < teammateCount; i++) { 
-                            if (teammates[i].name == tName) { 
-                                teammates[i].lat = tLat; 
-                                teammates[i].lon = tLon; 
-                                teammates[i].lastSeen = millis(); 
-                                found = true; 
-                                break; 
-                            } 
-                        }
-                        if (!found) {
-                            if (teammateCount < MAX_TEAMMATES) {
-                                teammates[teammateCount++] = {tName, tLat, tLon, millis()};
-                            } else { 
-                                int oldest = 0; 
-                                for (int i = 1; i < MAX_TEAMMATES; i++) {
-                                    if (teammates[i].lastSeen < teammates[oldest].lastSeen) oldest = i; 
-                                }
-                                teammates[oldest] = {tName, tLat, tLon, millis()}; 
-                            }
-                        }
-                    }
+            if (msg.valid && modeMatches && !isReplay(msg.sender, msg.counter, msg.authentic)) {
+
+                // RADARUL DE ECHIPA acceptă doar mesaje care au trecut prin
+                // decriptare GCM reusita - adica doar de la cine are cheia echipei.
+                //
+                // Inainte, coordonatele din ORICE mesaj populau tabelul, inclusiv
+                // in modul public unde nu exista criptare deloc. Oricine in raza de
+                // 10 km putea injecta cinci "coechipieri" cu pozitii inventate si,
+                // fiindca tabelul are cinci sloturi cu evacuarea celui mai vechi,
+                // iti putea scoate oamenii reali de pe ecran.
+                if (msg.authentic && msg.hasCoords && msg.sender.length() > 0) {
+                    upsertTeammate(msg.sender, msg.lat, msg.lon, msg.counter);
                 }
-                finalMsg = finalMsg.substring(0, pipeIdx); 
-            }
-            
-            String screenMsg = "[" + formatLocalTime() + "] " + finalMsg;
-            pushLoraHistory(screenMsg);
 
-            logLoraMessage(screenMsg, secureMode); 
-            notifyPhone(screenMsg); 
-            requestUIUpdate = true; 
-            fullRefreshNeeded = false; 
+                String prefix = (msg.type == MSG_SOS) ? "SOS " : "";
+                String screenMsg = "[" + formatLocalTime() + "] " + prefix + msg.body;
+                pushLoraHistory(screenMsg);
+
+                logLoraMessage(screenMsg, msg.authentic);
+                notifyPhone(screenMsg);
+                requestUIUpdate = true;
+                fullRefreshNeeded = false;
+            }
         }
-        radio.startReceive(); 
+        radio.startReceive();
     }
 
     if (millis() - lastSensorCheck > 1000) {
         lastSensorCheck = millis(); 
         
         static unsigned long lastSdCheck = 0;
-        if (millis() - lastSdCheck > 5000) { 
+        if (millis() - lastSdCheck > SD_HOTPLUG_CHECK_MS) {
             lastSdCheck = millis(); 
             bool wasSdDetected = sdDetected; 
             checkSDHotplug(); 
+            health.sdOk = sdDetected;
             if (wasSdDetected != sdDetected) { 
                 requestUIUpdate = true; 
                 fullRefreshNeeded = false; 
@@ -511,7 +526,8 @@ void loop() {
             getGpsPosition(gLat, gLon, gAlt);
             logGPS(gLat, gLon, gAlt);
 
-            if (fabs(gLat - lastRenderedLat) > 0.0001 || fabs(gLon - lastRenderedLon) > 0.0001) {
+            if (fabs(gLat - lastRenderedLat) > UI_POSITION_REDRAW_DEG ||
+                fabs(gLon - lastRenderedLon) > UI_POSITION_REDRAW_DEG) {
                 lastRenderedLat = gLat;
                 lastRenderedLon = gLon;
                 requestUIUpdate = true;
@@ -527,10 +543,11 @@ void loop() {
                 requestUIUpdate = true; 
             } 
         }
-        batVoltage = (analogRead(PIN_BAT_ADC) / 4095.0) * 7.26; 
+        sampleBattery();
+        checkBatteryCutoff();
 
         static unsigned long lastSensorLog = 0;
-        if (sdDetected && (millis() - lastSensorLog > 60000)) { 
+        if (sdDetected && (millis() - lastSensorLog > TELEMETRY_LOG_INTERVAL_MS)) {
             lastSensorLog = millis(); 
             logSystemData("Auto_Log"); 
         }
@@ -542,20 +559,6 @@ void loop() {
     }
     
     vTaskDelay(10 / portTICK_PERIOD_MS);
-}
-
-// FIX: exista trei formule diferite de baterie in proiect
-// ((v-3.2)*100 in BLE si in CSV, (v-3.2)/1.1*100 pe ecran) -> telefonul si
-// display-ul aratau procente diferite. Acum toata lumea foloseste asta.
-// Curba reala Li-Ion 18650 in gol, aproximata pe segmente.
-int getBatteryPercent() {
-    float v = batVoltage;
-    if (v >= 4.15f) return 100;
-    if (v <= 3.30f) return 0;
-    if (v > 3.90f) return (int)(80.0f + (v - 3.90f) * (20.0f / 0.25f)); // 3.90-4.15 -> 80..100
-    if (v > 3.70f) return (int)(45.0f + (v - 3.70f) * (35.0f / 0.20f)); // 3.70-3.90 -> 45..80
-    if (v > 3.55f) return (int)(15.0f + (v - 3.55f) * (30.0f / 0.15f)); // 3.55-3.70 -> 15..45
-    return (int)(0.0f + (v - 3.30f) * (15.0f / 0.25f));                // 3.30-3.55 -> 0..15
 }
 
 // Mutata in core_helpers.ino ca formatLocalTime(), care roteste corect si data.

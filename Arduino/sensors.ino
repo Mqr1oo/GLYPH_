@@ -46,7 +46,7 @@ void buttonTask(void * pvParameters) {
                 lastC = c;
             }
         }
-        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(15));
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(BTN_POLL_PERIOD_MS));
     }
 }
 
@@ -110,7 +110,7 @@ void sensorTask(void * pvParameters) {
 
                             // hAcc vine din acelasi pachet NAV-PVT, in mm -> metri.
                             // (inainte: getPositionAccuracy(), 1100 ms de blocaj)
-                            lastAccuracy = myGNSS.getHorizontalAccEst() / 1000.0f;
+                            lastAccuracy = myGNSS.getHorizontalAccEst() / 1000.0f;   // mm -> metri
 
                             currentSpeed   = (float)myGNSS.getGroundSpeed() * 0.0036f;
                             currentHeading = (float)myGNSS.getHeading() / 100000.0f;
@@ -133,6 +133,6 @@ void sensorTask(void * pvParameters) {
             }
         }
 
-        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(100));
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(SENSOR_POLL_PERIOD_MS));
     }
 }

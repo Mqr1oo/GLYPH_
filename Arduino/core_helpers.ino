@@ -25,16 +25,22 @@ bool inSetupPage() {
 // pe cai diferite trebuie sa ajunga la exact aceeasi configuratie.
 // ---------------------------------------------------------------------------
 void applyRadioProfile() {
-    radio.setSpreadingFactor(11);
-    radio.setBandwidth(125.0);
-    radio.setCodingRate(8);
-    radio.setSyncWord(0x12);
-    radio.setOutputPower(22);
+    radio.setSpreadingFactor(LORA_SPREADING_FACTOR);
+    radio.setBandwidth(LORA_BANDWIDTH_KHZ);
+    radio.setCodingRate(LORA_CODING_RATE);
+    radio.setSyncWord(LORA_SYNC_WORD);
+    radio.setOutputPower(LORA_OUTPUT_POWER_DBM);
 }
 
-void beginRadio(float freq) {
-    radio.begin(freq);
-    applyRadioProfile();
+// Intoarce codul RadioLib, ca apelantul sa poata sti daca radioul chiar merge.
+// Inainte, un esec la radio.begin() era complet invizibil: aparatul arata
+// perfect normal si nu transmitea nimic.
+int beginRadio(float freq) {
+    int state = radio.begin(freq);
+    health.radioOk = (state == RADIOLIB_ERR_NONE);
+    health.radioError = state;
+    if (health.radioOk) applyRadioProfile();
+    return state;
 }
 
 // ---------------------------------------------------------------------------
@@ -44,16 +50,16 @@ void applyPowerMode(PowerMode mode) {
     if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) != pdTRUE) return;
 
     if (mode == NORMAL_MODE) {
-        setCpuFrequencyMhz(80);
-        if (gps_ok) { myGNSS.powerSaveMode(false); myGNSS.setMeasurementRate(1000); }
+        setCpuFrequencyMhz(CPU_MHZ_NORMAL);
+        if (gps_ok) { myGNSS.powerSaveMode(false); myGNSS.setMeasurementRate(GPS_RATE_NORMAL_MS); }
     } else if (mode == ECO_MODE) {
-        if (gps_ok) { myGNSS.powerSaveMode(true); myGNSS.setMeasurementRate(10000); }
-        setCpuFrequencyMhz(40);
+        if (gps_ok) { myGNSS.powerSaveMode(true); myGNSS.setMeasurementRate(GPS_RATE_SAVING_MS); }
+        setCpuFrequencyMhz(CPU_MHZ_SAVING);
     } else if (mode == STEALTH_MODE) {
-        if (gps_ok) { myGNSS.powerSaveMode(true); myGNSS.setMeasurementRate(10000); }
+        if (gps_ok) { myGNSS.powerSaveMode(true); myGNSS.setMeasurementRate(GPS_RATE_SAVING_MS); }
         radio.standby();
         loraListening = false;
-        setCpuFrequencyMhz(40);
+        setCpuFrequencyMhz(CPU_MHZ_SAVING);
     }
 
     xSemaphoreGive(i2cMutex);
@@ -77,7 +83,7 @@ void pushLoraHistory(String screenMsg) {
 // cache-ul - exact genul de pas care se uita intr-una din cele 5 copii.
 // ---------------------------------------------------------------------------
 void setTeamName(String name) {
-    if (name.length() > 16) name = name.substring(0, 16);
+    if (name.length() > MAX_TEAM_LEN) name = name.substring(0, MAX_TEAM_LEN);
     if (name.length() == 0) name = "ALPHA";
     myTeam = name;
     prefs.putString("team", myTeam);
@@ -120,94 +126,117 @@ void getGpsPosition(double &lat, double &lon) {
 }
 
 // ---------------------------------------------------------------------------
-// Ora locala.
-//
-// Peste tot in cod se scria (gpsHour + timeOffset + 24) % 24, ceea ce corecteaza
-// ora dar lasa ziua pe cea UTC. Pentru UTC+2, dupa ora 22:00 numele fisierelor
-// KML si CSV primeau data de ieri; pentru offset negativ, data de maine.
-// Aici se roteste si ziua, si luna, si anul.
+// Coechipieri
 // ---------------------------------------------------------------------------
-static bool isLeapYear(int y) {
-    return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
-}
-
-static int daysInMonth(int y, int m) {
-    static const int d[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
-    if (m == 2 && isLeapYear(y)) return 29;
-    if (m < 1 || m > 12) return 30;
-    return d[m - 1];
-}
-
-void getLocalDateTime(int &year, int &month, int &day,
-                      int &hour, int &minute, int &second) {
-    year   = gpsYear;
-    month  = gpsMonth;
-    day    = gpsDay;
-    hour   = gpsHour + timeOffset;
-    minute = gpsMinute % 60;
-    second = gpsSecond % 60;
-
-    if (month < 1 || month > 12) month = 1;
-    if (day < 1) day = 1;
-
-    while (hour < 0) {
-        hour += 24;
-        day--;
-        if (day < 1) {
-            month--;
-            if (month < 1) { month = 12; year--; }
-            day = daysInMonth(year, month);
+//
+// Se apeleaza doar pentru mesaje autentificate (vezi filtrul din loop()).
+// Cand tabelul e plin, evacuam cel mai vechi - dar acum toti cei din tabel au
+// dovedit ca detin cheia echipei, deci nu mai poate fi umplut de un strain.
+void upsertTeammate(const String &name, double lat, double lon, uint32_t counter) {
+    for (int i = 0; i < teammateCount; i++) {
+        if (teammates[i].name == name) {
+            teammates[i].lat = lat;
+            teammates[i].lon = lon;
+            teammates[i].lastSeen = millis();
+            if (counter > 0) teammates[i].lastCounter = counter;
+            return;
         }
     }
-    while (hour > 23) {
-        hour -= 24;
-        day++;
-        if (day > daysInMonth(year, month)) {
-            day = 1;
-            month++;
-            if (month > 12) { month = 1; year++; }
-        }
-    }
-}
 
-// "HH:MM" sau "HH:MMAM/PM", in functie de setare.
-String formatLocalTime() {
-    if (!gpsTimeValid && !simActive) return "--:--";
-
-    int y, mo, d, h, mi, s;
-    getLocalDateTime(y, mo, d, h, mi, s);
-
-    char buf[12];
-    if (useAmPmFormat) {
-        int ampmH = h % 12;
-        if (ampmH == 0) ampmH = 12;
-        snprintf(buf, sizeof(buf), "%02d:%02d%s", ampmH, mi, h >= 12 ? "PM" : "AM");
+    int slot;
+    if (teammateCount < MAX_TEAMMATES) {
+        slot = teammateCount++;
     } else {
-        snprintf(buf, sizeof(buf), "%02d:%02d", h, mi);
+        slot = 0;
+        for (int i = 1; i < MAX_TEAMMATES; i++) {
+            if (teammates[i].lastSeen < teammates[slot].lastSeen) slot = i;
+        }
     }
-    return String(buf);
+
+    teammates[slot].name = name;
+    teammates[slot].lat = lat;
+    teammates[slot].lon = lon;
+    teammates[slot].lastSeen = millis();
+    teammates[slot].lastCounter = counter;
 }
 
-// "DD_MM_YYYY" - folosit in numele fisierelor de pe SD.
-String formatLocalDateFile() {
-    if (!((gps_ok || simActive) && gpsTimeValid)) return String("00_00_0000");
-
-    int y, mo, d, h, mi, s;
-    getLocalDateTime(y, mo, d, h, mi, s);
-
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%02d_%02d_%04d", d, mo, y);
-    return String(buf);
+// ---------------------------------------------------------------------------
+// Bateria
+// ---------------------------------------------------------------------------
+//
+// O singura citire pe ADC-ul ESP32-S3 poate sari cu peste 100 mV, iar curba lui
+// nu e liniara. analogReadMilliVolts() aplica automat calibrarea din eFuse;
+// media peste mai multe citiri scoate zgomotul.
+void sampleBattery() {
+    uint32_t sum = 0;
+    for (int i = 0; i < BATTERY_ADC_SAMPLES; i++) {
+        sum += analogReadMilliVolts(PIN_BAT_ADC);
+    }
+    batVoltage = (sum / (float)BATTERY_ADC_SAMPLES) / 1000.0f * BATTERY_DIVIDER;
 }
 
-// "HH:MM:SS"
-String formatLocalTimeSec() {
-    if (!((gps_ok || simActive) && gpsTimeValid)) return String("00:00:00");
+// Curba reala Li-Ion 18650 in gol, aproximata pe segmente.
+// Inainte existau trei formule diferite in proiect: ecranul arata un procent,
+// telefonul altul, iar CSV-ul al treilea.
+int getBatteryPercent() {
+    float v = batVoltage;
+    if (v >= 4.15f) return 100;
+    if (v <= 3.30f) return 0;
+    if (v > 3.90f) return (int)(80.0f + (v - 3.90f) * (20.0f / 0.25f));
+    if (v > 3.70f) return (int)(45.0f + (v - 3.70f) * (35.0f / 0.20f));
+    if (v > 3.55f) return (int)(15.0f + (v - 3.55f) * (30.0f / 0.15f));
+    return (int)((v - 3.30f) * (15.0f / 0.25f));
+}
 
-    int y, mo, d, h, mi, s;
-    getLocalDateTime(y, mo, d, h, mi, s);
+bool batteryLow() {
+    return batVoltage > 0.5f && batVoltage < BATTERY_WARN_V;
+}
 
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%02d:%02d:%02d", h, mi, s);
-    return String(buf);
+// Sub pragul de oprire, sustinut, inchidem ordonat.
+//
+// Inainte, batVoltage era doar afisat si logat: aparatul mergea pana cadea
+// regulatorul, posibil in mijlocul unei scrieri pe SD, ceea ce putea lasa
+// traseul trunchiat sau tabela FAT corupta. Pentru un aparat al carui rost e sa
+// inregistreze unde ai fost, a pierde traseul exact la sfarsitul lui e cel mai
+// prost moment posibil.
+void checkBatteryCutoff() {
+    static unsigned long belowSince = 0;
+
+    // Sub 0.5 V inseamna ca ADC-ul nu citeste corect (alimentare pe USB fara
+    // acumulator, de exemplu), nu ca bateria e goala.
+    if (batVoltage < 0.5f || batVoltage >= BATTERY_CUTOFF_V) {
+        belowSince = 0;
+        return;
+    }
+
+    if (belowSince == 0) {
+        belowSince = millis();
+        return;
+    }
+
+    // Un varf de consum (transmisia LoRa trage cateva sute de mA) nu trebuie sa
+    // opreasca aparatul degeaba, de aceea cerem ca pragul sa fie depasit continuu.
+    if (millis() - belowSince < BATTERY_CUTOFF_HOLD_MS) return;
+
+    notifyPhone("[SYS] Battery critical, shutting down");
+    stopRecordingSafely();
+    showShutdownNotice(tr_batt_empty[currentLang]);
+    enterDeepSleep8Min(false);
+}
+
+// ---------------------------------------------------------------------------
+// Starea perifericelor
+// (obiectul `health` e definit in GLYPH_.ino, fiindca sketch-ul principal e
+//  concatenat primul si il foloseste deja in setup())
+// ---------------------------------------------------------------------------
+
+// Text scurt pentru antetul ecranului: ce lipseste, nu ce merge.
+String healthBadge() {
+    String bad = "";
+    if (!health.radioOk)   bad += "RADIO ";
+    if (!health.buttonsOk) bad += "BTN ";
+    if (!health.gpsOk)     bad += "GPS ";
+    if (!sdDetected)       bad += "SD ";
+    bad.trim();
+    return bad;
 }
