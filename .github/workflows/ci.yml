@@ -1,1 +1,84 @@
+name: CI
 
+# Ce face: la fiecare push pe GitHub, doua verificari automate.
+#
+#   1. "Teste native"      - ruleaza logica pura (timp, distanta, protocol,
+#                            cripto, KML) pe un calculator din cloud. Cateva
+#                            secunde. Asta prinde regresii de logica.
+#
+#   2. "Compilare firmware"- verifica daca sketch-ul chiar compileaza pentru
+#                            ESP32-S3. Cateva minute. Asta prinde clasa
+#                            "nu mai compileaza" inainte sa ramai cu ea in repo.
+#
+# Nu trebuie sa faci nimic ca sa porneasca. Rezultatul apare in tab-ul
+# "Actions" de pe GitHub si ca bifa verde sau X rosu langa fiecare commit.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:   # buton de pornire manuala, din tab-ul Actions
+
+jobs:
+  tests:
+    name: Teste native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instaleaza mbedtls
+        run: sudo apt-get update && sudo apt-get install -y libmbedtls-dev
+
+      - name: Ruleaza testele
+        run: |
+          chmod +x test/run.sh
+          ./test/run.sh
+
+  build:
+    name: Compilare firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instaleaza arduino-cli
+        uses: arduino/setup-arduino-cli@v1
+
+      - name: Instaleaza platforma ESP32
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls \
+            https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+
+      - name: Instaleaza bibliotecile
+        run: |
+          # Instalarea din git nu e permisa implicit.
+          arduino-cli config set library.enable_unsafe_install true
+
+          arduino-cli lib install "RadioLib"
+          arduino-cli lib install "SparkFun u-blox GNSS Arduino Library"
+          arduino-cli lib install "Adafruit SHT4x Library"
+          arduino-cli lib install "Adafruit LSM6DS"
+          arduino-cli lib install "Adafruit LIS3MDL"
+          arduino-cli lib install "U8g2_for_Adafruit_GFX"
+          arduino-cli lib install "Button2"
+          arduino-cli lib install "Modulino"
+
+          # GxEPD nu e in indexul oficial - se ia direct din surse.
+          arduino-cli lib install --git-url https://github.com/ZinggJM/GxEPD.git
+
+      - name: Pregateste folderul de sketch
+        run: |
+          # Arduino cere ca folderul sa aiba EXACT numele fisierului principal.
+          # La noi fisierul principal e GLYPH_.ino, iar folderul se numeste
+          # Arduino/ - deci copiem intr-un folder cu numele corect, doar pentru
+          # compilare. Fisierele din repo raman neatinse.
+          mkdir -p build/GLYPH_
+          cp Arduino/* build/GLYPH_/
+
+      - name: Compileaza
+        run: |
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32s3 \
+            --warnings default \
+            build/GLYPH_
