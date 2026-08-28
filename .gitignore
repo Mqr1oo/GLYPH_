@@ -1,0 +1,4 @@
+test/glyph_tests
+*.o
+*.elf
+*.bin.tmp
