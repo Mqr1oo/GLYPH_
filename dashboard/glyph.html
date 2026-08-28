@@ -183,76 +183,107 @@
 
 <div id="glyph-security-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#0d0d0d; color:#fff; z-index:999999; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family: 'JetBrains Mono', monospace, sans-serif;">
     <div style="text-align: center; max-width: 340px; padding: 24px; background: #161618; border: 1px solid #2a2a2d; border-radius: 20px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);">
-        <h2 id="glyph-lock-title" style="color:#0a84ff; letter-spacing: 2px; margin-bottom: 5px; font-weight: bold; font-size: 22px;">GLYPH</h2>
-        <p id="glyph-lock-sub" style="color:#8e8e93; font-size: 12px; margin-bottom: 22px; font-family: 'Inter', sans-serif;">Enter your screen lock code</p>
-        <input type="password" inputmode="numeric" autocomplete="current-password" id="glyph-pass-input" placeholder="Code" style="width: 100%; padding:14px; border:1px solid #2a2a2d; background:#0d0d0d; color:#fff; text-align:center; outline:none; border-radius: 12px; margin-bottom: 12px; font-family: 'Inter', sans-serif; font-size: 16px;">
-        <input type="password" autocomplete="new-password" id="glyph-pass-confirm" placeholder="Repeat code" style="display:none; width: 100%; padding:14px; border:1px solid #2a2a2d; background:#0d0d0d; color:#fff; text-align:center; outline:none; border-radius: 12px; margin-bottom: 12px; font-family: 'Inter', sans-serif; font-size: 16px;">
+        <h2 style="color:#0a84ff; letter-spacing: 2px; margin-bottom: 5px; font-weight: bold; font-size: 22px;">GLYPH</h2>
+        <p id="glyph-lock-sub" style="color:#8e8e93; font-size: 12px; margin-bottom: 22px; font-family: 'Inter', sans-serif;">Enter the access code</p>
+        <input type="password" id="glyph-pass-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Access code" style="width: 100%; padding:14px; border:1px solid #2a2a2d; background:#0d0d0d; color:#fff; text-align:center; outline:none; border-radius: 12px; margin-bottom: 10px; font-family: 'Inter', sans-serif; font-size: 16px;">
+        <label style="display:flex; align-items:center; justify-content:center; gap:7px; color:#8e8e93; font-size:12px; margin-bottom:14px; font-family:'Inter', sans-serif; cursor:pointer;">
+            <input type="checkbox" id="glyph-show-code" style="accent-color:#0a84ff; cursor:pointer;"> Show code
+        </label>
         <button id="glyph-unlock-btn" style="width: 100%; padding:14px; background:#0a84ff; color:#fff; border:none; border-radius: 12px; cursor:pointer; font-weight:600; font-family: 'Inter', sans-serif; transition: 0.2s; font-size: 14px; letter-spacing: 1px;">UNLOCK</button>
-        <p id="glyph-error-msg" style="color:#ff453a; margin-top:15px; font-size: 12px; display:none; font-family: 'Inter', sans-serif; font-weight: 500;">Wrong code.</p>
-        <p style="color:#5a5a5f; font-size: 11px; margin-top:18px; line-height:1.5; font-family: 'Inter', sans-serif;">
-            This is a screen lock for this phone only. It keeps the app closed if someone picks up your unlocked phone. It is not access control &mdash; anyone with the file can read it.
-        </p>
+        <p id="glyph-error-msg" style="color:#ff453a; margin-top:15px; font-size: 12px; display:none; font-family: 'Inter', sans-serif; font-weight: 500;"></p>
     </div>
 </div>
 
 <script>
-    // Ecranul de blocare - rescris.
+    // ------------------------------------------------------------------
+    // CODUL DE ACCES
     //
-    // Ce era inainte: un SHA-256 fara salt, hardcodat in pagina, verificat local.
-    // Trei probleme: hash-ul era in sursa (deci codul se recupera din dictionar
-    // in secunde, SHA-256 fiind proiectat sa fie rapid), era acelasi pentru
-    // oricine descarca aplicatia, si se ocolea stergand o cheie din localStorage.
+    // Un singur cod, pe care il alegi tu si il dai cui vrei - la fel ca inainte.
+    // Ce s-a schimbat e doar felul in care e stocat aici:
     //
-    // Ce e acum: codul il alegi tu la prima pornire, se verifica cu PBKDF2-SHA256
-    // (300.000 de iteratii) peste un salt aleator per instalare, iar in pagina nu
-    // mai exista nimic hardcodat. Ce se salveaza local e doar verificatorul.
+    //   inainte: SHA-256(cod), fara salt
+    //            SHA-256 e proiectat sa fie rapid, deci un GPU incearca
+    //            miliarde de variante pe secunda; un cod scurt cade in secunde.
     //
-    // Ce NU rezolva: e tot cod care ruleaza in browserul vizitatorului, deci
-    // ramane o blocare de ecran, nu control de acces. Textul de mai sus spune
-    // asta explicit, in loc de "RESTRICTED AREA / PRO ACCESS REQUIRED".
+    //   acum:    PBKDF2-HMAC-SHA256(cod, salt aleator, 300.000 de iteratii)
+    //            fiecare incercare costa ~0.3 s, deci un atac prin dictionar
+    //            devine nepractic. Saltul face inutile tabelele precalculate.
+    //
+    // Ca sa schimbi codul: deschide set-lock-code.html, scrie codul, si
+    // inlocuieste cele trei valori de mai jos cu ce iti afiseaza.
+    //
+    // Limita reala, ca sa fie clar: verificarea ruleaza in browserul
+    // vizitatorului. Tine departe pe cineva care nimereste linkul, nu pe cineva
+    // care deschide DevTools. Daca vrei sa fie de netrecut, trebuie verificat pe
+    // server - GitHub Pages nu poate, dar Cloudflare Access sau un Worker mic
+    // in fata paginii pot.
+    // ------------------------------------------------------------------
+    const GLYPH_LOCK = {
+        salt: "",          // <-- din set-lock-code.html
+        hash: "",          // <-- din set-lock-code.html
+        iterations: 300000
+    };
+
     (function () {
-        const LOCK_KEY = 'glyph_lock_v2';
-        const PBKDF2_ITERATIONS = 300000;
+        const UNLOCK_KEY = 'glyph_unlocked_v2';
 
         const overlay  = document.getElementById('glyph-security-overlay');
         const input    = document.getElementById('glyph-pass-input');
-        const confirm  = document.getElementById('glyph-pass-confirm');
+        const showBox  = document.getElementById('glyph-show-code');
         const button   = document.getElementById('glyph-unlock-btn');
         const errorMsg = document.getElementById('glyph-error-msg');
         const subtitle = document.getElementById('glyph-lock-sub');
 
-        function readLock() {
-            try { return JSON.parse(localStorage.getItem(LOCK_KEY) || 'null'); }
-            catch (e) { return null; }
+        const configured = GLYPH_LOCK.salt.length > 0 && GLYPH_LOCK.hash.length > 0;
+
+        function fail(text) {
+            errorMsg.textContent = text;
+            errorMsg.style.display = 'block';
         }
 
-        const stored = readLock();
-        const isFirstRun = !stored;
-
-        if (isFirstRun) {
-            subtitle.textContent = 'Choose a screen lock code';
-            confirm.style.display = 'block';
-            button.textContent = 'SET CODE';
+        // Fara cod configurat NU se intra. Un gate care se deschide singur
+        // cand nu e configurat nu e un gate.
+        if (!configured) {
+            subtitle.textContent = 'Lock not configured';
+            input.style.display = 'none';
+            showBox.parentElement.style.display = 'none';
+            button.disabled = true;
+            button.style.opacity = '0.4';
+            button.style.cursor = 'not-allowed';
+            fail('Open set-lock-code.html, choose a code, and paste the values into GLYPH_LOCK.');
+            return;
         }
+
+        // Deblocarea salvata retine hash-ul curent: daca schimbi codul de acces,
+        // toate telefoanele deblocate anterior il cer din nou.
+        try {
+            if (localStorage.getItem(UNLOCK_KEY) === GLYPH_LOCK.hash) {
+                overlay.style.display = 'none';
+            }
+        } catch (e) { /* localStorage blocat: se cere codul, ceea ce e in regula */ }
+
+        showBox.addEventListener('change', () => {
+            input.type = showBox.checked ? 'text' : 'password';
+            input.focus();
+        });
 
         function toHex(buf) {
             return Array.from(new Uint8Array(buf))
                 .map(b => b.toString(16).padStart(2, '0')).join('');
         }
 
-        async function derive(code, saltHex) {
+        async function derive(code, saltHex, iterations) {
             const enc = new TextEncoder();
             const salt = Uint8Array.from(saltHex.match(/../g).map(h => parseInt(h, 16)));
             const key = await crypto.subtle.importKey(
                 'raw', enc.encode(code), 'PBKDF2', false, ['deriveBits']);
             const bits = await crypto.subtle.deriveBits(
-                { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
-                key, 256);
+                { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, key, 256);
             return toHex(bits);
         }
 
-        // Comparatie in timp constant: o comparatie normala de siruri se opreste
-        // la primul caracter diferit si scurge informatie prin durata ei.
+        // Comparatie in timp constant: una obisnuita se opreste la primul
+        // caracter diferit si scurge informatie prin durata ei.
         function constantTimeEquals(a, b) {
             if (a.length !== b.length) return false;
             let diff = 0;
@@ -260,48 +291,34 @@
             return diff === 0;
         }
 
-        function fail(text) {
-            errorMsg.textContent = text;
-            errorMsg.style.display = 'block';
-        }
-
         async function submit() {
             const code = input.value;
             errorMsg.style.display = 'none';
-
-            if (code.length < 4) { fail('Use at least 4 characters.'); return; }
+            if (!code) return;
 
             button.disabled = true;
-            button.textContent = 'WORKING...';
+            button.textContent = 'CHECKING...';
 
             try {
-                if (isFirstRun) {
-                    if (code !== confirm.value) { fail('The two codes do not match.'); return; }
-                    const saltHex = toHex(crypto.getRandomValues(new Uint8Array(16)));
-                    const hash = await derive(code, saltHex);
-                    localStorage.setItem(LOCK_KEY, JSON.stringify({ salt: saltHex, hash, iterations: PBKDF2_ITERATIONS }));
+                const hash = await derive(code, GLYPH_LOCK.salt, GLYPH_LOCK.iterations);
+                if (constantTimeEquals(hash, GLYPH_LOCK.hash)) {
+                    try { localStorage.setItem(UNLOCK_KEY, GLYPH_LOCK.hash); } catch (e) {}
                     overlay.style.display = 'none';
                 } else {
-                    const hash = await derive(code, stored.salt);
-                    if (constantTimeEquals(hash, stored.hash)) {
-                        overlay.style.display = 'none';
-                    } else {
-                        fail('Wrong code.');
-                        input.value = '';
-                    }
+                    fail('Wrong code.');
+                    input.value = '';
+                    input.focus();
                 }
             } catch (e) {
-                fail('Could not check the code on this browser.');
+                fail('Could not check the code in this browser.');
             } finally {
                 button.disabled = false;
-                button.textContent = isFirstRun ? 'SET CODE' : 'UNLOCK';
+                button.textContent = 'UNLOCK';
             }
         }
 
         button.addEventListener('click', submit);
-        [input, confirm].forEach(el => el.addEventListener('keypress', e => {
-            if (e.key === 'Enter') submit();
-        }));
+        input.addEventListener('keypress', e => { if (e.key === 'Enter') submit(); });
     })();
 </script>
 <header>
