@@ -86,29 +86,62 @@ jobs:
 
       - name: Instaleaza bibliotecile
         run: |
-          # Instalarea direct din git nu e permisa implicit.
           arduino-cli config set library.enable_unsafe_install true
 
-          # Dependintele Adafruit, instalate explicit: rezolvarea automata a
-          # dependintelor difera intre versiunile de arduino-cli, iar cand esueaza
-          # eroarea apare abia la compilare, ca "header negasit".
-          arduino-cli lib install "Adafruit BusIO"
-          arduino-cli lib install "Adafruit Unified Sensor"
-          arduino-cli lib install "Adafruit GFX Library"
+          # Fiecare biblioteca se instaleaza separat si isi raporteaza singura
+          # esecul ca adnotare. Inainte, un singur "lib install" picat oprea tot
+          # pasul si nu se vedea CARE dintre ele a fost.
+          fail=0
+          install_lib () {
+            if arduino-cli lib install "$1"; then
+              echo "OK   $1"
+            else
+              echo "::error title=Biblioteca lipsa::Nu s-a putut instala: $1"
+              fail=1
+            fi
+          }
 
-          arduino-cli lib install "RadioLib"
-          arduino-cli lib install "SparkFun u-blox GNSS Arduino Library"
-          arduino-cli lib install "Adafruit SHT4x Library"
-          arduino-cli lib install "Adafruit LSM6DS"
-          arduino-cli lib install "Adafruit LIS3MDL"
-          arduino-cli lib install "U8g2_for_Adafruit_GFX"
-          arduino-cli lib install "Button2"
-          arduino-cli lib install "Modulino"
+          # Dependintele Adafruit, explicit: rezolvarea automata difera intre
+          # versiunile de arduino-cli, iar cand esueaza eroarea apare abia la
+          # compilare, ca "header negasit".
+          install_lib "Adafruit BusIO"
+          install_lib "Adafruit Unified Sensor"
+          install_lib "Adafruit GFX Library"
 
-          # GxEPD nu e in indexul oficial - se ia direct din surse.
-          arduino-cli lib install --git-url https://github.com/ZinggJM/GxEPD.git
+          install_lib "RadioLib"
+          install_lib "SparkFun u-blox GNSS Arduino Library"
+          install_lib "Adafruit SHT4x Library"
+          install_lib "Adafruit LSM6DS"
+          install_lib "Adafruit LIS3MDL"
+          install_lib "U8g2_for_Adafruit_GFX"
+          install_lib "Button2"
+          install_lib "Modulino"
+
+          # GxEPD nu e in indexul oficial. Instalarea din git cere un flag si
+          # esueaza pe unele versiuni de arduino-cli, asa ca avem si varianta
+          # manuala: descarcam arhiva si o punem direct in folderul de biblioteci.
+          if arduino-cli lib install --git-url https://github.com/ZinggJM/GxEPD.git; then
+            echo "OK   GxEPD (din git)"
+          else
+            echo "::warning title=GxEPD::Instalarea din git a esuat; incerc descarcarea arhivei."
+            LIBDIR="$(arduino-cli config get directories.user)/libraries"
+            mkdir -p "$LIBDIR"
+            if curl -fsSL -o /tmp/gxepd.zip https://github.com/ZinggJM/GxEPD/archive/refs/heads/master.zip \
+               && unzip -q /tmp/gxepd.zip -d "$LIBDIR" \
+               && mv "$LIBDIR/GxEPD-master" "$LIBDIR/GxEPD"; then
+              echo "OK   GxEPD (din arhiva)"
+            else
+              echo "::error title=Biblioteca lipsa::Nu s-a putut instala GxEPD in niciun fel."
+              fail=1
+            fi
+          fi
 
           arduino-cli lib list
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error title=Instalare incompleta::Cel putin o biblioteca lipseste - vezi adnotarile de mai sus."
+            exit 1
+          fi
 
       - name: Pregateste folderul de sketch
         run: |
