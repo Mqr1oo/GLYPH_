@@ -18,6 +18,18 @@ on:
   pull_request:
   workflow_dispatch:   # buton de pornire manuala, din tab-ul Actions
 
+env:
+  # Versiunea de platforma ESP32 folosita la compilare.
+  #
+  # E fixata intentionat. Fara asta, CI-ul ia mereu ultima versiune, care se
+  # poate schimba de la o zi la alta - si atunci compilarea pica dintr-o data
+  # fara sa fi modificat tu nimic. Mai rau, poate fi alta decat cea din Arduino
+  # IDE-ul tau, si atunci CI-ul si calculatorul tau nu mai spun acelasi lucru.
+  #
+  # Pune aici EXACT versiunea pe care o ai in Arduino IDE:
+  # Tools -> Board -> Boards Manager -> cauta "esp32" -> scrie versiunea instalata.
+  ESP32_CORE_VERSION: "2.0.17"
+
 jobs:
   tests:
     name: Teste native
@@ -42,18 +54,34 @@ jobs:
       - name: Instaleaza arduino-cli
         uses: arduino/setup-arduino-cli@v1
 
+      - name: Ce versiuni folosim
+        # Primul lucru pe care il vrei intr-un log cand ceva pica: din ce s-a plecat.
+        run: |
+          arduino-cli version
+          gcc --version | head -1
+
       - name: Instaleaza platforma ESP32
         run: |
+          set -x
           arduino-cli config init
           arduino-cli config add board_manager.additional_urls \
             https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
           arduino-cli core update-index
-          arduino-cli core install esp32:esp32
+          arduino-cli core install "esp32:esp32@${ESP32_CORE_VERSION}"
+          arduino-cli core list
 
       - name: Instaleaza bibliotecile
         run: |
-          # Instalarea din git nu e permisa implicit.
+          set -x
+          # Instalarea direct din git nu e permisa implicit.
           arduino-cli config set library.enable_unsafe_install true
+
+          # Dependintele Adafruit, instalate explicit: rezolvarea automata a
+          # dependintelor difera intre versiunile de arduino-cli, iar cand esueaza
+          # eroarea apare abia la compilare, ca "header negasit".
+          arduino-cli lib install "Adafruit BusIO"
+          arduino-cli lib install "Adafruit Unified Sensor"
+          arduino-cli lib install "Adafruit GFX Library"
 
           arduino-cli lib install "RadioLib"
           arduino-cli lib install "SparkFun u-blox GNSS Arduino Library"
@@ -67,6 +95,8 @@ jobs:
           # GxEPD nu e in indexul oficial - se ia direct din surse.
           arduino-cli lib install --git-url https://github.com/ZinggJM/GxEPD.git
 
+          arduino-cli lib list
+
       - name: Pregateste folderul de sketch
         run: |
           # Arduino cere ca folderul sa aiba EXACT numele fisierului principal.
@@ -75,10 +105,56 @@ jobs:
           # compilare. Fisierele din repo raman neatinse.
           mkdir -p build/GLYPH_
           cp Arduino/* build/GLYPH_/
+          ls -la build/GLYPH_/
 
       - name: Compileaza
+        id: compile
         run: |
+          set -o pipefail
           arduino-cli compile \
             --fqbn esp32:esp32:esp32s3 \
             --warnings default \
-            build/GLYPH_
+            build/GLYPH_ 2>&1 | tee compile.log
+
+      # Logul complet al unei rulari cere autentificare ca sa fie citit.
+      # Rezumatul, in schimb, e vizibil public pe pagina rularii - deci cand
+      # compilarea pica, punem acolo ultimele linii si erorile extrase.
+      # Asa se poate vedea CE a picat fara sa intre nimeni in cont.
+      - name: Scrie eroarea in rezumat
+        if: failure()
+        run: |
+          # compile.log lipseste daca s-a oprit mai devreme, la instalare.
+          if [ ! -f compile.log ]; then
+            echo "## A esuat inainte de compilare" >> "$GITHUB_STEP_SUMMARY"
+            echo "Instalarea platformei sau a bibliotecilor nu a reusit - vezi mai jos ce a apucat sa se instaleze." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "## Compilarea a esuat"
+            echo
+            echo "### Liniile de eroare"
+            echo '```'
+            grep -E "error:|Error|fatal|not found|No such file" compile.log | head -40 || echo "(niciuna extrasa - vezi mai jos)"
+            echo '```'
+            echo
+            echo "### Ultimele 60 de linii"
+            echo '```'
+            tail -60 compile.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Acelasi lucru daca pica instalarea platformei sau a bibliotecilor:
+      # fara asta, un esec inainte de compilare nu lasa nicio urma vizibila.
+      - name: Ce s-a instalat totusi
+        if: failure()
+        run: |
+          {
+            echo "### Platforme instalate"
+            echo '```'
+            arduino-cli core list 2>&1 || true
+            echo '```'
+            echo "### Biblioteci instalate"
+            echo '```'
+            arduino-cli lib list 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
