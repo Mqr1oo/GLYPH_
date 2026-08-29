@@ -21,14 +21,13 @@ on:
 env:
   # Versiunea de platforma ESP32 folosita la compilare.
   #
-  # E fixata intentionat. Fara asta, CI-ul ia mereu ultima versiune, care se
-  # poate schimba de la o zi la alta - si atunci compilarea pica dintr-o data
-  # fara sa fi modificat tu nimic. Mai rau, poate fi alta decat cea din Arduino
-  # IDE-ul tau, si atunci CI-ul si calculatorul tau nu mai spun acelasi lucru.
-  #
   # Pune aici EXACT versiunea pe care o ai in Arduino IDE:
   # Tools -> Board -> Boards Manager -> cauta "esp32" -> scrie versiunea instalata.
-  ESP32_CORE_VERSION: "2.0.17"
+  # Acum e potrivita cu Arduino IDE-ul tau: 3.3.7.
+  #
+  # Daca versiunea nu exista in index, workflow-ul nu se opreste: instaleaza
+  # ultima disponibila si lasa un avertisment vizibil, ca sa vezi diferenta.
+  ESP32_CORE_VERSION: "3.3.7"
 
 jobs:
   tests:
@@ -62,17 +61,31 @@ jobs:
 
       - name: Instaleaza platforma ESP32
         run: |
-          set -x
-          arduino-cli config init
+          # --overwrite: fara el, comanda pica daca exista deja o configurare.
+          arduino-cli config init --overwrite
+
+          # Indexul STABIL al Espressif. Cel de pe gh-pages e pentru versiuni de
+          # dezvoltare si nu contine intotdeauna versiunile 2.x - de aceea o
+          # versiune fixata poate sa nu fie gasita acolo.
           arduino-cli config add board_manager.additional_urls \
-            https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+            https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core update-index
-          arduino-cli core install "esp32:esp32@${ESP32_CORE_VERSION}"
+
+          echo "--- versiuni ESP32 disponibile ---"
+          arduino-cli core search esp32 --all 2>&1 | head -40 || true
+          echo "----------------------------------"
+
+          if arduino-cli core install "esp32:esp32@${ESP32_CORE_VERSION}"; then
+            echo "Instalat esp32:esp32@${ESP32_CORE_VERSION}"
+          else
+            echo "::warning title=Versiune indisponibila::esp32:esp32@${ESP32_CORE_VERSION} nu exista in index. Instalez ultima versiune. Compilarea poate diferi de Arduino IDE-ul tau."
+            arduino-cli core install esp32:esp32
+          fi
+
           arduino-cli core list
 
       - name: Instaleaza bibliotecile
         run: |
-          set -x
           # Instalarea direct din git nu e permisa implicit.
           arduino-cli config set library.enable_unsafe_install true
 
@@ -105,10 +118,9 @@ jobs:
           # compilare. Fisierele din repo raman neatinse.
           mkdir -p build/GLYPH_
           cp Arduino/* build/GLYPH_/
-          ls -la build/GLYPH_/
+          ls build/GLYPH_/
 
       - name: Compileaza
-        id: compile
         run: |
           set -o pipefail
           arduino-cli compile \
@@ -116,38 +128,35 @@ jobs:
             --warnings default \
             build/GLYPH_ 2>&1 | tee compile.log
 
-      # Logul complet al unei rulari cere autentificare ca sa fie citit.
-      # Rezumatul, in schimb, e vizibil public pe pagina rularii - deci cand
-      # compilarea pica, punem acolo ultimele linii si erorile extrase.
-      # Asa se poate vedea CE a picat fara sa intre nimeni in cont.
-      - name: Scrie eroarea in rezumat
+      # Logul complet al unei rulari cere autentificare ca sa fie citit, dar
+      # adnotarile si rezumatul sunt vizibile public pe pagina rularii.
+      # Cand ceva pica, punem eroarea in amandoua, ca sa poata fi vazuta fara cont.
+      - name: Publica eroarea
         if: failure()
         run: |
-          # compile.log lipseste daca s-a oprit mai devreme, la instalare.
-          if [ ! -f compile.log ]; then
-            echo "## A esuat inainte de compilare" >> "$GITHUB_STEP_SUMMARY"
-            echo "Instalarea platformei sau a bibliotecilor nu a reusit - vezi mai jos ce a apucat sa se instaleze." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          {
-            echo "## Compilarea a esuat"
-            echo
-            echo "### Liniile de eroare"
-            echo '```'
-            grep -E "error:|Error|fatal|not found|No such file" compile.log | head -40 || echo "(niciuna extrasa - vezi mai jos)"
-            echo '```'
-            echo
-            echo "### Ultimele 60 de linii"
-            echo '```'
-            tail -60 compile.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -f compile.log ]; then
+            # Primele erori de compilare, ca adnotari - apar sus pe pagina rularii.
+            grep -E "error:|fatal error:" compile.log | head -10 | while IFS= read -r line; do
+              echo "::error title=Eroare de compilare::${line}"
+            done
 
-      # Acelasi lucru daca pica instalarea platformei sau a bibliotecilor:
-      # fara asta, un esec inainte de compilare nu lasa nicio urma vizibila.
-      - name: Ce s-a instalat totusi
-        if: failure()
-        run: |
+            {
+              echo "## Compilarea a esuat"
+              echo
+              echo '```'
+              grep -E "error:|fatal|No such file|not found" compile.log | head -40 || echo "(nicio linie de eroare extrasa)"
+              echo '```'
+              echo
+              echo "### Ultimele 60 de linii"
+              echo '```'
+              tail -60 compile.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error title=Esec inainte de compilare::Instalarea platformei sau a bibliotecilor nu a reusit."
+            echo "## A esuat inainte de compilare" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           {
             echo "### Platforme instalate"
             echo '```'
