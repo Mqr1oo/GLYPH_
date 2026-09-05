@@ -143,10 +143,14 @@ header{
   border-radius:var(--r-lg);overflow:hidden;
 }
 .card-head{
-  padding:13px 16px 11px;
+  display:flex;align-items:center;gap:9px;
+  padding:11px 16px;min-height:44px;
   font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
   color:var(--ink-3);border-bottom:1px solid var(--line-soft);
 }
+/* Butonul din capul cardului se lipeste la dreapta prin flex, nu prin float:
+   cu float se suprapunea peste avertismentul "connect first". */
+.card-head .mini{margin-left:auto}
 .rows{display:flex;flex-direction:column}
 .row{
   display:flex;align-items:center;justify-content:space-between;gap:14px;
@@ -284,7 +288,25 @@ header{
   background:var(--surface-2);border:1px solid var(--line);border-radius:12px;
   color:var(--ink);font-family:var(--sans);font-size:15px;font-weight:500;cursor:pointer;
 }
-.action:active{transform:scale(.99);background:var(--surface-3)}
+.action:active{transform:scale(.985);background:var(--surface-3);border-color:var(--ink-3)}
+/* Sageata din dreapta: fara ea randurile arata ca niste casute de informatii,
+   nu ca butoane - exact reprosul primit. */
+.action::after{
+  content:'';margin-left:auto;flex:none;width:7px;height:7px;
+  border-right:2px solid var(--ink-3);border-top:2px solid var(--ink-3);
+  transform:rotate(45deg);opacity:.75;
+}
+/* Deconectat, comenzile catre aparat nu au ce sa faca: se vede ca sunt stinse
+   in loc sa para ca aplicatia nu raspunde. */
+.action:disabled,.btn-hw:disabled{opacity:.38;cursor:not-allowed}
+.action:disabled:active,.btn-hw:disabled:active{transform:none;background:var(--surface-2)}
+.card.needs-link .card-head::after{
+  content:'connect first';margin-left:auto;text-transform:none;letter-spacing:0;
+  font-family:var(--mono);font-size:10px;color:var(--warn);white-space:nowrap;
+}
+/* Cand exista si un buton, el ia locul din dreapta si textul sta langa titlu. */
+.card.needs-link .card-head:has(.mini)::after{margin-left:0}
+.card.needs-link.linked .card-head::after{content:''}
 .action .ico{
   width:34px;height:34px;border-radius:9px;flex:0 0 auto;display:grid;place-items:center;
   background:var(--surface-3);color:var(--ink-2);
@@ -404,6 +426,74 @@ header{
 }
 .m-btn.ok{background:var(--accent);color:#fff}
 .m-btn.cancel{background:var(--surface-2);color:var(--ink)}
+
+/* ---------- insigna de mod din antet ---------- */
+.sec-badge{
+  display:inline-flex;align-items:center;gap:3px;margin-left:7px;
+  padding:1px 6px;border-radius:5px;
+  font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.06em;
+  background:var(--surface-3);color:var(--ink-3);border:1px solid var(--line);
+}
+.sec-badge svg{width:9px;height:9px}
+.sec-badge.on{background:rgba(53,208,127,.14);color:var(--ok);border-color:rgba(53,208,127,.4)}
+
+/* ---------- banda de inregistrare, vizibila din orice tab ---------- */
+.rec-banner{
+  position:fixed;left:12px;right:12px;
+  bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 10px);
+  z-index:700;display:flex;align-items:center;gap:11px;
+  padding:10px 12px;border-radius:13px;
+  background:rgba(21,23,26,.96);border:1px solid rgba(255,90,77,.45);
+  box-shadow:0 8px 26px rgba(0,0,0,.55);
+  backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);
+}
+.rec-dot{
+  width:10px;height:10px;border-radius:50%;background:var(--danger);flex:none;
+  animation:recPulse 1.6s ease-in-out infinite;
+}
+@keyframes recPulse{0%,100%{opacity:1}50%{opacity:.25}}
+.rec-title{font-size:13px;font-weight:600;color:var(--ink)}
+.rec-stats{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:1px}
+
+/* ---------- liste de fisiere si sesiuni ---------- */
+.list-body{padding:6px 0}
+.file-row{
+  display:flex;align-items:center;gap:8px;padding:10px 16px;
+  border-top:1px solid var(--line);
+}
+.file-row:first-child{border-top:0}
+.file-main{flex:1;min-width:0}
+.file-name{
+  font-size:14px;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.file-sub{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:2px}
+.mini{
+  flex:none;min-height:32px;padding:0 11px;border-radius:8px;
+  background:var(--surface-3);border:1px solid var(--line);color:var(--ink-2);
+  font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.05em;cursor:pointer;
+}
+.mini:active{background:var(--accent);border-color:var(--accent);color:#fff}
+.mini.danger{color:var(--danger)}
+.mini.danger:active{background:var(--danger);border-color:var(--danger);color:#fff}
+.mini:disabled{opacity:.4;cursor:not-allowed}
+.empty{padding:26px 18px;text-align:center;color:var(--ink-3);font-size:13px;line-height:1.6}
+
+/* ---------- bara de descarcare ---------- */
+.dl-bar{padding:11px 16px;border-top:1px solid var(--line)}
+.dl-top{
+  display:flex;align-items:center;gap:9px;margin-bottom:8px;
+  font-family:var(--mono);font-size:11px;color:var(--ink-2);
+}
+.dl-top span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dl-track{height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden}
+.dl-fill{height:100%;width:0;background:var(--accent);transition:width .2s}
+
+/* Butonul de urmarire se aprinde cat timp harta tine pasul cu GLYPH. */
+.map-tool.on{background:rgba(53,208,127,.16);border-color:rgba(53,208,127,.5);color:var(--ok)}
+
+/* Cinci tab-uri in loc de patru: eticheta trebuie sa incapa pe ecrane inguste. */
+.nav-btn{font-size:9.5px;letter-spacing:.03em}
 
 /* ---------- notificari scurte ---------- */
 #toasts{
@@ -617,7 +707,8 @@ header{
     <img src="logo.svg" alt="GLYPH">
     <div>
       <div class="brand-name">GLYPH</div>
-      <div class="link-state"><span class="dot" id="status-dot"></span><span id="link-text">Disconnected</span></div>
+      <div class="link-state"><span class="dot" id="status-dot"></span><span id="link-text">Disconnected</span>
+        <span class="sec-badge" id="sec-badge">PUBLIC</span></div>
     </div>
   </div>
   <button class="btn-connect" id="btn-connect">CONNECT</button>
@@ -719,7 +810,7 @@ header{
       </div>
 
       <div class="map-tools">
-        <button class="map-tool" onclick="locateUser()" aria-label="My location">
+        <button class="map-tool" id="btn-follow" onclick="locateUser()" aria-label="Follow GLYPH">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <circle cx="12" cy="12" r="7"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/>
           </svg>
@@ -809,7 +900,7 @@ header{
         <div class="field-label">Team channel &mdash; only devices with the same name can read your secure messages</div>
         <div class="field-row">
           <input type="text" id="inp-team" class="text-input" value="ALPHA" maxlength="16">
-          <button class="btn primary" onclick="saveTeam()">SAVE</button>
+          <button class="btn primary" id="btn-save-team" onclick="saveTeam()">SAVE</button>
         </div>
       </div>
       <div class="field">
@@ -822,16 +913,16 @@ header{
       </div>
     </div>
 
-    <div class="card">
+    <div class="card needs-link" id="card-buttons">
       <div class="card-head">Device buttons</div>
       <div class="btn-grid">
-        <button class="btn-hw" onmousedown="btnDown('A')" onmouseup="btnUp('A')" ontouchstart="btnDown('A')" ontouchend="btnUp('A')">A<span>hold = long</span></button>
-        <button class="btn-hw" onmousedown="btnDown('B')" onmouseup="btnUp('B')" ontouchstart="btnDown('B')" ontouchend="btnUp('B')">B<span>hold = long</span></button>
-        <button class="btn-hw" onmousedown="btnDown('C')" onmouseup="btnUp('C')" ontouchstart="btnDown('C')" ontouchend="btnUp('C')">C<span>hold = long</span></button>
+        <button class="btn-hw" onpointerdown="btnDown('A',event)" onpointerup="btnUp('A',event)" onpointercancel="btnCancel()" onpointerleave="btnCancel()">A<span>hold = long</span></button>
+        <button class="btn-hw" onpointerdown="btnDown('B',event)" onpointerup="btnUp('B',event)" onpointercancel="btnCancel()" onpointerleave="btnCancel()">B<span>hold = long</span></button>
+        <button class="btn-hw" onpointerdown="btnDown('C',event)" onpointerup="btnUp('C',event)" onpointercancel="btnCancel()" onpointerleave="btnCancel()">C<span>hold = long</span></button>
       </div>
     </div>
 
-    <div class="card">
+    <div class="card needs-link" id="card-shortcuts">
       <div class="card-head">Shortcuts</div>
       <div class="action-list">
         <button class="action" onclick="pressBtn('AB@')">
@@ -855,7 +946,46 @@ header{
       </div>
     </div>
   </div>
+
+  <!-- ---------------- FISIERE ---------------- -->
+  <div id="tab-files" class="tab-pane">
+
+    <div class="card">
+      <div class="card-head">Recorded tracks
+        <button class="mini" onclick="exportLog()">LOG CSV</button>
+      </div>
+      <div class="list-body" id="sessions-list">
+        <div class="empty">No recorded tracks yet.</div>
+      </div>
+    </div>
+
+    <div class="card needs-link" id="card-sd">
+      <div class="card-head">GLYPH memory card
+        <button class="mini" onclick="requestSDList()">REFRESH</button>
+      </div>
+
+      <div class="offline-note hidden" id="sd-missing" style="margin:12px 16px 0;display:flex">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>
+        </svg>
+        <span>No memory card in the device.</span>
+      </div>
+
+      <div class="dl-bar hidden" id="dl-bar">
+        <div class="dl-top">
+          <span id="dl-name">file</span>
+          <button class="mini danger" onclick="cancelDownload()">STOP</button>
+        </div>
+        <div class="dl-track"><div class="dl-fill" id="dl-fill"></div></div>
+      </div>
+
+      <div class="list-body" id="sd-list">
+        <div class="empty">Tap REFRESH to read the card in your GLYPH.</div>
+      </div>
+    </div>
+  </div>
 </div>
+
 
 <!-- ====================== BARA DE JOS ====================== -->
 <div class="bottom-nav">
@@ -871,6 +1001,10 @@ header{
     <svg class="nav-icon" viewBox="0 0 24 24"><path d="m9 4-6 2v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14"/></svg>
     ROUTES
   </button>
+  <button class="nav-btn" onclick="switchTab('tab-files', this)">
+    <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>
+    FILES
+  </button>
   <button class="nav-btn" onclick="switchTab('tab-control', this)">
     <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg>
     CONTROL
@@ -883,6 +1017,16 @@ header{
     <div class="modal-text" id="modal-text">Message</div>
     <div class="modal-buttons" id="modal-buttons"></div>
   </div>
+</div>
+
+<!-- Se vede din orice tab cat timp GLYPH inregistreaza. -->
+<div id="rec-banner" class="rec-banner hidden">
+  <span class="rec-dot"></span>
+  <div style="flex:1;min-width:0">
+    <div class="rec-title">Recording track</div>
+    <div class="rec-stats" id="rec-stats">0 pts</div>
+  </div>
+  <button class="mini" onclick="switchTab('tab-map')">MAP</button>
 </div>
 
 <div id="toasts"></div>
@@ -911,6 +1055,7 @@ header{
         // in acel moment, harta iese de dimensiune zero si ramane gri - de aceea
         // se initializeaza abia la prima deschidere, si se remasoara la fiecare.
         if (tabId === 'tab-map') initMapIfNeeded();
+        if (tabId === 'tab-files') renderSessions();
     }
 
     function showAlert(title, text) {
@@ -951,6 +1096,9 @@ header{
 
     let lastHealthState = 'OK';
     let isSecureMode = false;
+    let currentTeam = 'ALPHA';
+    let sdPresent = true;
+    const BATTERY_ALERT_PCT = 20;
     let recentTxMessages = []; 
 
     const bleServiceUUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
@@ -1024,6 +1172,13 @@ header{
         document.getElementById('hero-sub').innerText = 'Live telemetry over Bluetooth';
 
         requestWakeLock();
+        setControlsEnabled(true);
+        alertOnce('link', false, '');
+        logEvent('link', 'connected');
+
+        // Cerem starea imediat, in loc sa asteptam ciclul de telemetrie: altfel
+        // butonul SECURE si numele echipei arata gresit primele 5 secunde.
+        setTimeout(() => sendCmd('CMD_STATE'), 400);
     }
 
     function onDisconnected() {
@@ -1058,6 +1213,21 @@ header{
         lastHealthState = 'OK';
 
         setRecording(false);
+        setControlsEnabled(false);
+        clearTeammates();
+        logEvent('link', 'disconnected');
+
+        // O sesiune de inregistrare ramane deschisa: aparatul poate fi inca in
+        // REC, doar legatura a cazut. La reconectare, SYS_REC o continua.
+        alertOnce('link', true, 'Bluetooth link to GLYPH lost', 'error');
+    }
+
+    // Comenzile catre aparat nu au sens fara legatura. Se sting vizibil, in loc
+    // sa para ca aplicatia nu raspunde la apasare.
+    function setControlsEnabled(on) {
+        document.querySelectorAll('#tab-control .action, #tab-control .btn-hw, #tab-control .seg button, #btn-save-team')
+            .forEach(b => { b.disabled = !on; });
+        document.querySelectorAll('.card.needs-link').forEach(c => c.classList.toggle('linked', on));
     }
 
     // Ajutoare mici, ca sa nu repetam manipularea de clase in trei locuri.
@@ -1120,12 +1290,20 @@ header{
             // Sub 20% coloram cifra: pe teren, procentul e informatia dupa care
             // decizi daca mai pornesti radioul.
             batt.classList.toggle('low', !isNaN(pct) && pct <= 20);
+            if (!isNaN(pct)) alertOnce('batt', pct <= BATTERY_ALERT_PCT,
+                'GLYPH battery at ' + pct + '%');
             return;
         }
         if (val.startsWith("SYS_GPS:")) {
             const gpsData = val.split("SYS_GPS:")[1];
-            setGpsText(gpsData, gpsData.includes("NO FIX"));
+            const noFix = gpsData.includes("NO FIX");
+            setGpsText(gpsData, noFix);
             lastDeviceFix = parseFixFromTelemetry(gpsData);
+            alertOnce('fix', noFix, 'GLYPH lost its GPS fix');
+            if (lastDeviceFix) {
+                updateDeviceMarker(lastDeviceFix.lat, lastDeviceFix.lng);
+                feedSession(lastDeviceFix.lat, lastDeviceFix.lng);
+            }
             return;
         }
         if (val.startsWith("SYS_SATS:")) { document.getElementById('val-sats').innerText = val.split(":")[1]; return; }
@@ -1155,7 +1333,87 @@ header{
         }
 
         if (val.startsWith("SYS_REC:")) {
-            setRecording(val.split(":")[1] === "1");
+            const on = val.split(":")[1] === "1";
+            setRecording(on);
+            // Inregistrarea de pe aparat porneste si traseul din aplicatie: apesi
+            // REC pe GLYPH si il vezi desenandu-se pe harta din telefon.
+            if (on) startSession(); else stopSession();
+            return;
+        }
+
+        // ---- stare de aparat, nu mesaje: nu au ce cauta in conversatie ----
+        if (val.startsWith("SYS_SEC:")) { applySecureState(val.split(":")[1] === "1"); return; }
+        if (val.startsWith("SYS_TEAMNAME:")) {
+            currentTeam = val.substring("SYS_TEAMNAME:".length).trim();
+            document.getElementById('inp-team').value = currentTeam;
+            renderSecureBadge();
+            return;
+        }
+        if (val.startsWith("SYS_PWR:")) { markPowerMode(parseInt(val.split(":")[1], 10)); return; }
+        if (val.startsWith("SYS_SD:")) {
+            sdPresent = val.split(":")[1] === "1";
+            const w = document.getElementById('sd-missing');
+            if (w) w.classList.toggle('hidden', sdPresent);
+            return;
+        }
+
+        // Firmware-ul mai vechi trimite textul asta ca mesaj obisnuit. Il
+        // inghitim aici ca sa nu mai apara doua randuri de gunoi in chat la
+        // fiecare comutare, si il folosim tot ca stare.
+        if (val.startsWith("[SYS] Secure Mode:")) {
+            applySecureState(val.trim().toUpperCase().endsWith("ON"));
+            return;
+        }
+        if (val === "[SYS] Power Mode Updated" || val === "[SYS] Team updated") return;
+
+        // ---- colegii de echipa auziti pe radio ----
+        if (val.startsWith("SYS_MATE:")) {
+            const p = val.substring("SYS_MATE:".length).split("|");
+            if (p.length >= 4) {
+                updateTeammate(p[0], parseFloat(p[1]), parseFloat(p[2]), parseInt(p[3], 10));
+            }
+            return;
+        }
+
+        // ---- listarea cardului SD ----
+        if (val === "SYS_LS_BEGIN") { sdFiles = []; return; }
+        if (val.startsWith("SYS_LS:")) {
+            const p = val.substring("SYS_LS:".length).split("|");
+            sdFiles.push({ name: p[0], size: parseInt(p[1], 10) || 0 });
+            return;
+        }
+        if (val === "SYS_LS_END") { sdListing = false; renderSDList(); return; }
+        if (val.startsWith("SYS_LS_ERR:")) {
+            sdListing = false;
+            document.getElementById('sd-list').innerHTML =
+                '<div class="empty">Card unavailable: ' + escapeHtml(val.substring(11)) + '</div>';
+            return;
+        }
+
+        // ---- descarcarea unui fisier ----
+        if (val.startsWith("SYS_FILE_BEGIN:")) {
+            const p = val.substring("SYS_FILE_BEGIN:".length).split("|");
+            if (dl) { dl.total = parseInt(p[1], 10) || 0; dl.got = 0; dl.chunks = []; }
+            return;
+        }
+        if (val.startsWith("SYS_FILE_DATA:")) {
+            if (!dl) return;
+            try {
+                const bin = atob(val.substring("SYS_FILE_DATA:".length));
+                dl.chunks.push(bin);
+                dl.got += bin.length;
+                if (dl.total > 0) {
+                    document.getElementById('dl-fill').style.width =
+                        Math.min(100, Math.round(dl.got * 100 / dl.total)) + '%';
+                }
+            } catch (e) { /* bucata stricata: mai bine lipseste decat sa crape */ }
+            return;
+        }
+        if (val === "SYS_FILE_END") { finishDownload(); return; }
+        if (val.startsWith("SYS_FILE_ERR:")) {
+            dl = null;
+            document.getElementById('dl-bar').classList.add('hidden');
+            showToast('Download failed: ' + val.substring(13), 'error');
             return;
         }
         
@@ -1167,7 +1425,9 @@ header{
         }
 
         appendMsg(val, 'rx');
-        
+        logEvent('rx', val);
+        maybePinFromMessage(val);
+
         if (navigator.vibrate) navigator.vibrate(200);
 
         if ('Notification' in window && Notification.permission === 'granted') {
@@ -1313,42 +1573,83 @@ header{
     }
 
     async function setSecureMode(state) {
-        if(await sendCmd("CMD_SEC:" + state)) {
-            isSecureMode = (state === 'ON');
-            document.getElementById('sec-pub').classList.remove('active');
-            document.getElementById('sec-sec').classList.remove('active', 'secure-on');
-            
-            if (isSecureMode) {
-                document.getElementById('sec-sec').classList.add('active', 'secure-on');
-                document.getElementById('btn-send-msg').classList.add('secure');
-                document.getElementById('msg-input').placeholder = "Secure Message...";
-            } else {
-                document.getElementById('sec-pub').classList.add('active');
-                document.getElementById('btn-send-msg').classList.remove('secure');
-                document.getElementById('msg-input').placeholder = "Public Message...";
-            }
-        }
+        // Cererea pleaca; afisajul se schimba abia cand aparatul confirma prin
+        // SYS_SEC. Inainte butonul se aprindea imediat, deci daca scrierea prin
+        // Bluetooth esua, aplicatia arata "secure" iar aparatul trimitea in clar.
+        await sendCmd("CMD_SEC:" + state);
+    }
+
+    function applySecureState(on) {
+        isSecureMode = on;
+        document.getElementById('sec-pub').classList.toggle('active', !on);
+        document.getElementById('sec-sec').classList.toggle('active', on);
+        document.getElementById('sec-sec').classList.toggle('secure-on', on);
+        document.getElementById('btn-send-msg').classList.toggle('secure', on);
+        document.getElementById('msg-input').placeholder = on ? "Secure message…" : "Public message…";
+        renderSecureBadge();
+        logEvent('mode', on ? 'secure on' : 'secure off');
+    }
+
+    // Insigna din antet: in ce mod esti se vede din orice tab, nu doar din Comms.
+    function renderSecureBadge() {
+        const el = document.getElementById('sec-badge');
+        if (!el) return;
+        el.classList.toggle('on', isSecureMode);
+        el.innerHTML = isSecureMode
+            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">'
+              + '<rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>'
+              + escapeHtml(currentTeam)
+            : 'PUBLIC';
+    }
+
+    function markPowerMode(mode) {
+        if (isNaN(mode) || mode < 0 || mode > 2) return;
+        const names = ['normal', 'eco', 'stealth'];
+        names.forEach((n, i) => {
+            const b = document.getElementById('pwr-' + n);
+            if (b) b.classList.toggle('active', i === mode);
+        });
     }
 
     let pressTimer;
     let isLongPress = false;
+    let pressActive = null;
 
-    function btnDown(btnID) {
-        if (!isConnected) return;
+    // BUG REPARAT: butoanele aveau si ontouchstart si onmousedown. Pe telefon,
+    // browserul trimite intai evenimentul de atingere si apoi il mai simuleaza
+    // o data pe cel de mouse - deci fiecare apasare pleca de doua ori catre
+    // aparat, iar tinerea apasata pornea doua cronometre. Evenimentele "pointer"
+    // sunt unul singur pentru atingere, mouse si stylus, deci problema dispare
+    // din radacina. pressActive taie si cazul in care un al doilea deget atinge
+    // alt buton inainte ca primul sa fie ridicat.
+    function btnDown(btnID, ev) {
+        if (ev) ev.preventDefault();
+        if (!isConnected || pressActive) return;
+        pressActive = btnID;
         isLongPress = false;
         pressTimer = setTimeout(() => {
             isLongPress = true;
-            sendCmd(btnID + "L@"); 
-            if(navigator.vibrate) navigator.vibrate(50);
+            sendCmd(btnID + "L@");
+            if (navigator.vibrate) navigator.vibrate(50);
         }, 800);
     }
 
-    function btnUp(btnID) {
-        if (!isConnected) return;
+    function btnUp(btnID, ev) {
+        if (ev) ev.preventDefault();
         clearTimeout(pressTimer);
-        if (!isLongPress) {
-            sendCmd(btnID + "@"); 
-        }
+        if (pressActive !== btnID) { pressActive = null; return; }
+        pressActive = null;
+        if (!isConnected) return;
+        if (!isLongPress) sendCmd(btnID + "@");
+    }
+
+    // Degetul alunecat in afara butonului, sau un apel primit peste aplicatie:
+    // fara asta cronometrul de apasare lunga ramanea pornit si trimitea o
+    // comanda dupa ce utilizatorul credea ca a renuntat.
+    function btnCancel() {
+        clearTimeout(pressTimer);
+        pressActive = null;
+        isLongPress = false;
     }
 
     function pressBtn(comboCode) { 
@@ -1396,7 +1697,6 @@ header{
     }
 
 
-
     /* ======================================================================
        HARTA SI RUTELE KML
        Portat din vizualizatorul KML separat, cu doua diferente:
@@ -1411,6 +1711,15 @@ header{
     let routePoints = [], markers = [];
     let mode = 'draw';
     let deviceMarker = null, lastDeviceFix = null;
+
+    // Urmarirea aparatului: harta se muta singura dupa GLYPH pana cand utili-
+    // zatorul trage de ea. Atunci se opreste, altfel i-am smuci harta din mana
+    // la fiecare pozitie noua. Butonul de tinta o porneste la loc.
+    let followDevice = true;
+    let liveTrack = null;              // traseul desenat in timpul inregistrarii
+    let importedTrack = null;          // un traseu deschis din lista sau de pe card
+    let pinLayer = null;               // puncte primite prin radio
+    const mateMarkers = {};            // colegii de echipa, dupa nume
 
     function showToast(message, type) {
         const wrap = document.getElementById('toasts');
@@ -1429,7 +1738,6 @@ header{
         const lat = parseFloat(parts[0]), lng = parseFloat(parts[1]);
         if (isNaN(lat) || isNaN(lng)) return null;
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
-        updateDeviceMarker(lat, lng);
         return { lat, lng };
     }
 
@@ -1438,7 +1746,20 @@ header{
     function updateDeviceMarker(lat, lng) {
         if (!map) return;
         const pos = L.latLng(lat, lng);
-        if (deviceMarker) { deviceMarker.setLatLng(pos); return; }
+        if (deviceMarker) {
+            deviceMarker.setLatLng(pos);
+            if (followDevice) {
+                // Doar deplasare lina, nu si zoom: pozitiile vin la 5 secunde si
+                // o animatie mai lunga decat atat nu s-ar termina niciodata.
+                map.panTo(pos, { animate: true, duration: .6 });
+            }
+            return;
+        }
+
+        // Prima pozitie: sarim direct acolo, la un zoom din care se vede strada.
+        // O animatie de la vederea pe toata tara ar dura secunde bune si ar fi
+        // intrerupta de urmatoarea pozitie, lasand harta blocata la mijloc.
+        if (followDevice) map.setView(pos, Math.max(map.getZoom(), 15), { animate: false });
         deviceMarker = L.marker(pos, {
             icon: L.divIcon({
                 className: '',
@@ -1483,15 +1804,22 @@ header{
         });
 
         map.on('click', e => { if (mode === 'draw') addPointToRoute(e.latlng); });
-        map.on('locationfound', () => showToast('Location found', 'success'));
-        map.on('locationerror', () => showToast('Could not get your location', 'error'));
+
+        // Tras de harta cu degetul = "vreau sa ma uit in alta parte". Urmarirea
+        // se opreste, altfel harta ar sari inapoi la GLYPH dupa 5 secunde.
+        map.on('dragstart', () => { followDevice = false; updateFollowButton(); });
+
+        // Apasare lunga = trimite punctul asta echipei pe radio.
+        map.on('contextmenu', e => sendPinOverLora(e.latlng));
+
         map.getContainer().style.cursor = 'crosshair';
 
         // Daca aparatul are deja fix, pornim de acolo - e locul care te intereseaza.
         if (lastDeviceFix) {
             updateDeviceMarker(lastDeviceFix.lat, lastDeviceFix.lng);
-            map.setView([lastDeviceFix.lat, lastDeviceFix.lng], 14);
+            map.setView([lastDeviceFix.lat, lastDeviceFix.lng], 15);
         }
+        updateFollowButton();
 
         refreshOnlineNote();
         setTimeout(() => map.invalidateSize(), 60);
@@ -1560,10 +1888,126 @@ header{
         showToast('Route cleared', 'success');
     }
 
+    // Butonul de tinta duce la GLYPH, nu la telefon. Aplicatia nu mai cere
+    // deloc locatia telefonului: pozitia care conteaza e a aparatului de pe
+    // teren, iar telefonul poate fi la 40 de km distanta, in masina.
     function locateUser() {
         if (!map) return;
-        showToast('Finding your location…');
-        map.locate({ setView: true, maxZoom: 15 });
+        if (!lastDeviceFix) {
+            showToast('No position from GLYPH yet', 'warning');
+            return;
+        }
+        followDevice = true;
+        updateFollowButton();
+        map.setView([lastDeviceFix.lat, lastDeviceFix.lng], Math.max(map.getZoom(), 15));
+        showToast('Following GLYPH', 'success');
+    }
+
+    function updateFollowButton() {
+        const b = document.getElementById('btn-follow');
+        if (b) b.classList.toggle('on', followDevice && !!lastDeviceFix);
+    }
+
+    /* ---------- traseul desenat in timp real cat inregistreaza ---------- */
+    function clearLiveTrack() {
+        if (liveTrack && map) { map.removeLayer(liveTrack); }
+        liveTrack = null;
+    }
+
+    function addLiveTrackPoint(lat, lon) {
+        if (!map) return;                       // tab-ul hartii inca nedeschis
+        if (!liveTrack) {
+            liveTrack = L.polyline([], {
+                color: '#35D07F', weight: 5, opacity: .95, lineJoin: 'round'
+            }).addTo(map);
+        }
+        liveTrack.addLatLng([lat, lon]);
+    }
+
+    // Un traseu deschis din lista de sesiuni sau descarcat de pe cardul SD.
+    function drawImportedTrack(latlngs) {
+        if (!map || !latlngs.length) return;
+        if (importedTrack) map.removeLayer(importedTrack);
+        importedTrack = L.polyline(latlngs, {
+            color: '#FFB020', weight: 4, opacity: .9, dashArray: '1 8', lineCap: 'round'
+        }).addTo(map);
+        followDevice = false;
+        updateFollowButton();
+        map.fitBounds(importedTrack.getBounds(), { padding: [40, 40] });
+    }
+
+    /* ---------- colegii de echipa auziti pe radio ---------- */
+    function updateTeammate(name, lat, lon, ageSec) {
+        if (!map || isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) return;
+        // O pozitie de acum jumatate de ora nu mai spune unde e omul. O aratam
+        // stinsa in loc s-o stergem: "a fost aici" e tot o informatie utila.
+        const stale = ageSec > 900;
+        const color = stale ? '#6B7280' : '#FFB020';
+        const html = '<div style="display:flex;flex-direction:column;align-items:center">'
+            + '<div style="width:13px;height:13px;border-radius:50%;background:' + color
+            + ';border:2px solid #0B0C0E;box-shadow:0 0 0 2px rgba(0,0,0,.5)"></div>'
+            + '<span style="margin-top:2px;font:600 10px system-ui;color:' + color
+            + ';text-shadow:0 1px 3px #000;white-space:nowrap">' + escapeHtml(name) + '</span></div>';
+
+        const icon = L.divIcon({ className: '', html, iconSize: [13, 26], iconAnchor: [6.5, 6.5] });
+        if (mateMarkers[name]) {
+            mateMarkers[name].setLatLng([lat, lon]).setIcon(icon);
+        } else {
+            mateMarkers[name] = L.marker([lat, lon], { icon, title: name }).addTo(map);
+        }
+        mateMarkers[name].bindPopup(escapeHtml(name) + '<br>'
+            + (stale ? Math.round(ageSec / 60) + ' min ago' : 'just now'));
+    }
+
+    function clearTeammates() {
+        Object.keys(mateMarkers).forEach(k => {
+            if (map) map.removeLayer(mateMarkers[k]);
+            delete mateMarkers[k];
+        });
+    }
+
+    /* ---------- puncte trimise si primite prin radio ---------- */
+    function ensurePinLayer() {
+        if (!pinLayer && map) pinLayer = L.layerGroup().addTo(map);
+        return pinLayer;
+    }
+
+    function addPin(lat, lon, label) {
+        if (!map || !ensurePinLayer()) return;
+        L.marker([lat, lon], {
+            icon: L.divIcon({
+                className: '',
+                html: '<div style="width:14px;height:14px;border-radius:50% 50% 50% 0;'
+                    + 'transform:rotate(-45deg);background:#FF5A4D;border:2px solid #0B0C0E"></div>',
+                iconSize: [14, 14], iconAnchor: [7, 14]
+            })
+        }).addTo(pinLayer).bindPopup(escapeHtml(label || 'Pin'));
+    }
+
+    // Un mesaj primit care contine coordonate devine un punct pe harta. Asa
+    // "sunt la 46.92, 26.36" nu mai e text pe care sa-l copiezi de mana.
+    function maybePinFromMessage(text) {
+        const m = String(text).match(/(-?\d{1,2}\.\d{4,})\s*,\s*(-?\d{1,3}\.\d{4,})/);
+        if (!m) return;
+        const lat = parseFloat(m[1]), lon = parseFloat(m[2]);
+        if (isNaN(lat) || isNaN(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
+        addPin(lat, lon, text.slice(0, 60));
+        showToast('Position received — pinned on the map');
+    }
+
+    // Tii apasat pe harta -> trimiti coordonatele alea echipei, pe LoRa.
+    function sendPinOverLora(latlng) {
+        const txt = latlng.lat.toFixed(5) + ',' + latlng.lng.toFixed(5);
+        showConfirm('Send position', 'Broadcast <b>' + txt + '</b> to your team over LoRa?',
+            async () => {
+                if (await sendCmd(txt)) {
+                    addPin(latlng.lat, latlng.lng, 'Sent: ' + txt);
+                    appendMsg(txt, 'tx');
+                    showToast('Position sent', 'success');
+                } else {
+                    showToast('Not connected', 'error');
+                }
+            });
     }
 
     /* ---------- rutare automata (are nevoie de internet) ---------- */
@@ -1692,6 +2136,383 @@ header{
             showToast('Could not read that KML file', 'error');
         }
     }
+
+    // =====================================================================
+    // STARE PERSISTENTA
+    //
+    // Traseul inregistrat trebuie sa supravietuiasca inchiderii aplicatiei -
+    // altfel o drumetie de patru ore se pierde pentru ca a sunat telefonul.
+    // IndexedDB, nu localStorage: un traseu de cateva mii de puncte depaseste
+    // limita de ~5 MB a localStorage si, mai important, localStorage scrie
+    // sincron si ar bloca interfata la fiecare punct nou.
+    // =====================================================================
+
+    const DB_NAME = 'glyph';
+    const DB_VERSION = 1;
+    let dbPromise = null;
+
+    function openDB() {
+        if (dbPromise) return dbPromise;
+        dbPromise = new Promise((resolve, reject) => {
+            if (!('indexedDB' in window)) { reject(new Error('no indexeddb')); return; }
+            const req = indexedDB.open(DB_NAME, DB_VERSION);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains('sessions')) {
+                    db.createObjectStore('sessions', { keyPath: 'id' });
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+        return dbPromise;
+    }
+
+    async function dbPut(store, value) {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(store, 'readwrite');
+            tx.objectStore(store).put(value);
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    async function dbGetAll(store) {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(store, 'readonly');
+            const req = tx.objectStore(store).getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async function dbDelete(store, key) {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(store, 'readwrite');
+            tx.objectStore(store).delete(key);
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    // =====================================================================
+    // INREGISTRAREA TRASEULUI
+    //
+    // Sursa e telemetria: aparatul trimite pozitia la fiecare 5 secunde, deci
+    // traseul se deseneaza in timp real fara sa cerem nimic in plus. Punctele
+    // se scriu in baza de date la fiecare cateva, nu la fiecare unul, ca sa nu
+    // atingem discul de sute de ori intr-o ora.
+    // =====================================================================
+
+    let activeSession = null;
+    let pendingWrites = 0;
+
+    function haversineKm(a, b) {
+        const R = 6371;
+        const dLat = (b[0] - a[0]) * Math.PI / 180;
+        const dLon = (b[1] - a[1]) * Math.PI / 180;
+        const la1 = a[0] * Math.PI / 180, la2 = b[0] * Math.PI / 180;
+        const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2;
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+    }
+
+    function sessionDistanceKm(points) {
+        let total = 0;
+        for (let i = 1; i < points.length; i++) total += haversineKm(points[i - 1], points[i]);
+        return total;
+    }
+
+    function startSession() {
+        if (activeSession) return;
+        activeSession = {
+            id: 'S' + Date.now(),
+            startedAt: Date.now(),
+            endedAt: null,
+            points: []
+        };
+        clearLiveTrack();
+        showToast('Recording started', 'success');
+        renderRecBanner();
+    }
+
+    async function stopSession() {
+        if (!activeSession) return;
+        activeSession.endedAt = Date.now();
+        const n = activeSession.points.length;
+        if (n >= 2) {
+            try { await dbPut('sessions', activeSession); } catch (e) {}
+            showToast('Track saved — ' + n + ' points, '
+                      + sessionDistanceKm(activeSession.points).toFixed(2) + ' km', 'success');
+        } else {
+            // Sub doua puncte nu e un traseu, e o pozitie. Nu umplem lista cu ele.
+            showToast('Recording stopped (no track)', 'warning');
+        }
+        activeSession = null;
+        pendingWrites = 0;
+        renderRecBanner();
+        if (document.getElementById('tab-files').classList.contains('active')) renderSessions();
+    }
+
+    // Chemata pentru fiecare pozitie noua venita de la aparat.
+    function feedSession(lat, lon) {
+        if (!activeSession) return;
+        const pts = activeSession.points;
+        const last = pts[pts.length - 1];
+        // Aparatul repeta aceeasi pozitie cat timp sta pe loc: fara pragul asta
+        // am strange mii de puncte identice si distanta ar creste din zgomotul GPS.
+        if (last && haversineKm(last, [lat, lon]) * 1000 < 4) return;
+        pts.push([lat, lon, Date.now()]);
+        addLiveTrackPoint(lat, lon);
+        renderRecBanner();
+
+        if (++pendingWrites >= 5) {
+            pendingWrites = 0;
+            dbPut('sessions', activeSession).catch(() => {});
+        }
+    }
+
+    function renderRecBanner() {
+        const el = document.getElementById('rec-banner');
+        if (!el) return;
+        if (!activeSession) { el.classList.add('hidden'); return; }
+        el.classList.remove('hidden');
+        const mins = Math.floor((Date.now() - activeSession.startedAt) / 60000);
+        document.getElementById('rec-stats').innerText =
+            activeSession.points.length + ' pts · '
+            + sessionDistanceKm(activeSession.points).toFixed(2) + ' km · ' + mins + ' min';
+    }
+
+    // La pornire, o sesiune ramasa deschisa (aplicatia a fost inchisa in timpul
+    // inregistrarii) se inchide singura, ca sa nu ramana agatata pentru totdeauna.
+    async function recoverSessions() {
+        try {
+            const all = await dbGetAll('sessions');
+            for (const s of all) {
+                if (!s.endedAt) {
+                    s.endedAt = s.points.length ? s.points[s.points.length - 1][2] : s.startedAt;
+                    await dbPut('sessions', s);
+                }
+            }
+        } catch (e) {}
+    }
+
+    function fmtDuration(ms) {
+        const m = Math.round(ms / 60000);
+        return m < 60 ? m + ' min' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+    }
+
+    async function renderSessions() {
+        const box = document.getElementById('sessions-list');
+        if (!box) return;
+        let all = [];
+        try { all = await dbGetAll('sessions'); } catch (e) {}
+        all.sort((a, b) => b.startedAt - a.startedAt);
+
+        if (!all.length) {
+            box.innerHTML = '<div class="empty">No recorded tracks yet.<br>'
+                + 'Press REC on the device and the track appears here.</div>';
+            return;
+        }
+        box.innerHTML = all.map(s => {
+            const d = new Date(s.startedAt);
+            const hhmm = String(d.getHours()).padStart(2, '0') + ':'
+                       + String(d.getMinutes()).padStart(2, '0');
+            const dist = sessionDistanceKm(s.points).toFixed(2);
+            return `<div class="file-row">
+                <div class="file-main">
+                  <div class="file-name">${escapeHtml(d.toLocaleDateString())} ${hhmm}</div>
+                  <div class="file-sub">${s.points.length} pts · ${dist} km · ${fmtDuration((s.endedAt||s.startedAt) - s.startedAt)}</div>
+                </div>
+                <button class="mini" onclick="openSession('${s.id}')">MAP</button>
+                <button class="mini" onclick="exportSession('${s.id}')">KML</button>
+                <button class="mini danger" onclick="deleteSession('${s.id}')">DEL</button>
+              </div>`;
+        }).join('');
+    }
+
+    async function findSession(id) {
+        const all = await dbGetAll('sessions');
+        return all.find(s => s.id === id);
+    }
+
+    async function openSession(id) {
+        const s = await findSession(id);
+        if (!s || s.points.length < 1) { showToast('Empty track', 'warning'); return; }
+        switchTab('tab-map');
+        setTimeout(() => {
+            drawImportedTrack(s.points.map(p => [p[0], p[1]]));
+            showToast('Track loaded on the map', 'success');
+        }, 350);
+    }
+
+    function sessionToKML(s) {
+        const coords = s.points.map(p => p[1] + ',' + p[0] + ',0').join(' ');
+        const name = 'GLYPH ' + new Date(s.startedAt).toISOString().slice(0, 16).replace('T', ' ');
+        return '<?xml version="1.0" encoding="UTF-8"?>\n'
+            + '<kml xmlns="http://www.opengis.net/kml/2.2">\n  <Document>\n'
+            + '    <name>' + name + '</name>\n'
+            + '    <Placemark>\n      <name>' + name + '</name>\n'
+            + '      <LineString>\n        <tessellate>1</tessellate>\n'
+            + '        <coordinates>' + coords + '</coordinates>\n'
+            + '      </LineString>\n    </Placemark>\n  </Document>\n</kml>';
+    }
+
+    function saveBlob(filename, text, mime) {
+        const blob = new Blob([text], { type: mime || 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    async function exportSession(id) {
+        const s = await findSession(id);
+        if (!s) return;
+        saveBlob('glyph_' + new Date(s.startedAt).toISOString().slice(0, 10) + '.kml',
+                 sessionToKML(s), 'application/vnd.google-earth.kml+xml');
+        showToast('KML saved', 'success');
+    }
+
+    async function deleteSession(id) {
+        showConfirm('Delete track', 'This removes the recorded track from the phone. It cannot be undone.',
+            async () => { await dbDelete('sessions', id); renderSessions(); showToast('Track deleted'); });
+    }
+
+    // Jurnalul iesirii: tot ce s-a intamplat, intr-un CSV pe care il poti
+    // deschide in orice program de calcul tabelar.
+    const tripLog = [];
+    function logEvent(kind, detail) {
+        tripLog.push({ t: Date.now(), kind, detail });
+        if (tripLog.length > 5000) tripLog.shift();
+    }
+    function exportLog() {
+        if (!tripLog.length) { showToast('Nothing logged yet', 'warning'); return; }
+        const rows = ['time,kind,detail'].concat(tripLog.map(e =>
+            new Date(e.t).toISOString() + ',' + e.kind + ',"' + String(e.detail).replace(/"/g, '""') + '"'));
+        saveBlob('glyph_log_' + new Date().toISOString().slice(0, 10) + '.csv',
+                 rows.join('\n'), 'text/csv');
+        showToast('Log saved', 'success');
+    }
+
+    // =====================================================================
+    // FISIERELE DE PE CARDUL SD
+    // =====================================================================
+
+    let sdFiles = [];
+    let sdListing = false;
+    let dl = null;   // descarcarea in curs
+
+    function requestSDList() {
+        if (!isConnected) { showToast('Connect to GLYPH first', 'warning'); return; }
+        sdFiles = [];
+        sdListing = true;
+        document.getElementById('sd-list').innerHTML = '<div class="empty">Reading card…</div>';
+        sendCmd('CMD_LS');
+        // Fara raspuns in 8 secunde, firmware-ul de pe aparat e cel vechi.
+        setTimeout(() => {
+            if (sdListing) {
+                sdListing = false;
+                document.getElementById('sd-list').innerHTML =
+                    '<div class="empty">No answer from the device.<br>'
+                    + 'This needs the updated firmware — the older build has no SD commands.</div>';
+            }
+        }, 8000);
+    }
+
+    function renderSDList() {
+        const box = document.getElementById('sd-list');
+        if (!sdFiles.length) {
+            box.innerHTML = '<div class="empty">Card is empty.</div>';
+            return;
+        }
+        box.innerHTML = sdFiles.map(f => {
+            const kb = (f.size / 1024).toFixed(1);
+            const isKml = /\.kml$/i.test(f.name);
+            return `<div class="file-row">
+                <div class="file-main">
+                  <div class="file-name">${escapeHtml(f.name)}</div>
+                  <div class="file-sub">${kb} KB</div>
+                </div>
+                ${isKml ? `<button class="mini" onclick="pullFile('${escapeHtml(f.name)}','map')">MAP</button>` : ''}
+                <button class="mini" onclick="pullFile('${escapeHtml(f.name)}','save')">SAVE</button>
+              </div>`;
+        }).join('');
+    }
+
+    function pullFile(name, action) {
+        if (dl) { showToast('A download is already running', 'warning'); return; }
+        dl = { name, action, chunks: [], total: 0, got: 0 };
+        document.getElementById('dl-bar').classList.remove('hidden');
+        document.getElementById('dl-name').innerText = name;
+        document.getElementById('dl-fill').style.width = '0%';
+        sendCmd('CMD_GET:' + name);
+    }
+
+    function cancelDownload() {
+        if (!dl) return;
+        sendCmd('CMD_GET_ABORT');
+        dl = null;
+        document.getElementById('dl-bar').classList.add('hidden');
+        showToast('Download cancelled');
+    }
+
+    function finishDownload() {
+        if (!dl) return;
+        const text = dl.chunks.join('');
+        const { name, action } = dl;
+        dl = null;
+        document.getElementById('dl-bar').classList.add('hidden');
+
+        if (action === 'map') {
+            switchTab('tab-map');
+            setTimeout(() => parseAndDrawKML(text), 350);
+        } else {
+            saveBlob(name, text, /\.kml$/i.test(name)
+                ? 'application/vnd.google-earth.kml+xml' : 'text/plain');
+            showToast('Saved to phone', 'success');
+        }
+        logEvent('file', 'downloaded ' + name);
+    }
+
+    // =====================================================================
+    // ALERTE
+    //
+    // Se declanseaza o singura data pe schimbare de stare. Fara asta, "baterie
+    // scazuta" ar suna la fiecare 5 secunde cat timp bateria e scazuta.
+    // =====================================================================
+
+    const alerted = { batt: false, fix: false, link: false };
+
+    function alertOnce(key, on, text, level) {
+        if (on && !alerted[key]) {
+            alerted[key] = true;
+            showToast(text, level || 'warning');
+            logEvent('alert', text);
+            if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+            if ('Notification' in window && Notification.permission === 'granted'
+                && document.visibilityState === 'hidden') {
+                try { new Notification('GLYPH', { body: text, icon: 'icon-192.png' }); } catch (e) {}
+            }
+        } else if (!on) {
+            alerted[key] = false;
+        }
+    }
+
+    // =====================================================================
+    // PORNIRE
+    // =====================================================================
+    (function initGlyphExtras() {
+        // Comenzile catre aparat pleaca stinse: fara legatura n-au ce sa faca.
+        setControlsEnabled(false);
+        renderSecureBadge();
+        recoverSessions().then(renderSessions).catch(() => {});
+        // Cronometrul din banda de inregistrare: minutele trec si fara pozitii noi.
+        setInterval(renderRecBanner, 30000);
+    })();
 
 </script>
 </body>

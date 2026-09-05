@@ -4,7 +4,7 @@
 // Acum: numele cache-ului e versionat, cache-urile vechi se sterg la activate,
 // HTML-ul merge network-first (cu fallback pe cache offline), restul cache-first.
 
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const CACHE_NAME = 'GLYPH-' + CACHE_VERSION;
 
 const ASSETS = [
@@ -37,7 +37,9 @@ self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
       .then((keys) => Promise.all(
-        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))
+        // TILE_CACHE are versiunea lui si supravietuieste actualizarilor
+        // aplicatiei: altfel fiecare update ar arunca harta descarcata.
+        keys.filter((k) => k !== CACHE_NAME && k !== TILE_CACHE).map((k) => caches.delete(k))
       ))
       .then(() => self.clients.claim())
   );
@@ -48,10 +50,51 @@ self.addEventListener('message', (e) => {
   if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
+// Cache separat pentru imaginile hartii, cu plafon: tile-urile pe care le-ai
+// vazut deja se afiseaza si fara semnal. Sunt tinute deoparte de fisierele
+// aplicatiei fiindca se strang cu miile si trebuie sa poata fi taiate singure
+// fara sa atinga aplicatia.
+const TILE_CACHE = 'GLYPH-tiles-v1';
+const TILE_CACHE_MAX = 1200;   // ~40-60 MB, cat o zona de oras la zoom mare
+
+function isTileRequest(url) {
+  return /(^|\.)(mt\d\.google\.com|tile\.openstreetmap\.org)$/.test(url.hostname);
+}
+
+// Taierea se face rar si la coada: primele intrate, primele iesite.
+async function trimTileCache() {
+  const cache = await caches.open(TILE_CACHE);
+  const keys = await cache.keys();
+  if (keys.length <= TILE_CACHE_MAX) return;
+  const excess = keys.length - TILE_CACHE_MAX;
+  for (let i = 0; i < excess; i++) await cache.delete(keys[i]);
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
 
   if (req.method !== 'GET') return;
+
+  // --- imaginile hartii: din cache daca exista, altfel de pe retea si retinute ---
+  let reqUrl = null;
+  try { reqUrl = new URL(req.url); } catch (err) { reqUrl = null; }
+
+  if (reqUrl && isTileRequest(reqUrl)) {
+    e.respondWith(
+      caches.open(TILE_CACHE).then((cache) =>
+        cache.match(req).then((hit) => {
+          if (hit) return hit;
+          return fetch(req).then((res) => {
+            // Raspunsul e opac (alt domeniu, fara CORS): nu-l putem citi, dar
+            // il putem pastra si reda mai tarziu, ceea ce e tot ce ne trebuie.
+            cache.put(req, res.clone()).then(trimTileCache).catch(() => {});
+            return res;
+          }).catch(() => hit || Response.error());
+        })
+      )
+    );
+    return;
+  }
 
   const isDocument =
     req.mode === 'navigate' ||
