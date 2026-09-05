@@ -4,7 +4,7 @@
 // Acum: numele cache-ului e versionat, cache-urile vechi se sterg la activate,
 // HTML-ul merge network-first (cu fallback pe cache offline), restul cache-first.
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v4';
 const CACHE_NAME = 'GLYPH-' + CACHE_VERSION;
 
 const ASSETS = [
@@ -12,7 +12,15 @@ const ASSETS = [
   './glyph.html',
   './manifest.json',
   './icon-192.png',
-  './icon-512.png'   // FIX: lipsea din lista, iconul mare nu era disponibil offline
+  './logo.svg',      // logo-ul, scos din pagina intr-un fisier separat
+  './icon-512.png',  // FIX: lipsea din lista, iconul mare nu era disponibil offline
+
+  // Biblioteca hartii, de pe CDN. E pusa aici ca sa fie descarcata din start:
+  // altfel, prima deschidere a tab-ului Routes fara internet nu ar avea harta
+  // deloc. Tile-urile (imaginile hartii) tot au nevoie de conexiune - de aceea
+  // tab-ul arata un avertisment cand esti offline.
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
 ];
 
 self.addEventListener('install', (e) => {
