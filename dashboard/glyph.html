@@ -114,6 +114,12 @@ header{
 }
 .tab-pane.active{display:flex}
 .tab-pane.flush{padding:0}
+/* BUG REPARAT: tab-pane e flex-column, iar elementele flex se micsoreaza
+   implicit ca sa incapa in inaltimea disponibila. Cu multe carduri, ele se
+   turteau si continutul lor iesea afara (butoanele NORMAL/ECO/STEALTH taiate)
+   sau era tuns de overflow:hidden (lista de trasee), in loc ca pagina sa
+   deruleze. flex:0 0 auto le lasa inaltimea lor reala si derularea revine. */
+.tab-pane > *{flex:0 0 auto}
 
 /* ---------- starea conexiunii, sus pe Status ---------- */
 .hero{
@@ -369,9 +375,11 @@ header{
 }
 .sheet-grip:active::before{background:var(--accent)}
 /* Restrans: raman doar cele doua butoane de mod, harta primeste restul ecranului. */
-/* Restrans: raman butoanele de mod si avertismentul offline; harta ia restul. */
-.sheet.collapsed{max-height:none}
-.sheet.collapsed > *:not(.sheet-grip):not(.seg):not(.offline-note){display:none}
+/* Ascuns de tot: harta ia tot ecranul. Uneltele de traseu se cheama cu
+   butonul-creion de pe harta, cand chiar vrei sa desenezi ceva. */
+.sheet{transition:max-height .22s ease}
+.sheet.gone{display:none}
+.map-tool.editing{background:var(--accent);border-color:var(--accent);color:#fff}
 .sheet-row{display:flex;gap:9px}
 .sheet-row > *{flex:1}
 .hidden{display:none!important}
@@ -443,6 +451,7 @@ header{
   bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 10px);
   z-index:700;display:flex;align-items:center;gap:11px;
   padding:10px 12px;border-radius:13px;
+  transition:transform .2s ease, opacity .2s ease;
   background:rgba(21,23,26,.96);border:1px solid rgba(255,90,77,.45);
   box-shadow:0 8px 26px rgba(0,0,0,.55);
   backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);
@@ -454,6 +463,23 @@ header{
 @keyframes recPulse{0%,100%{opacity:1}50%{opacity:.25}}
 .rec-title{font-size:13px;font-weight:600;color:var(--ink)}
 .rec-stats{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:1px}
+
+/* Cat timp banda e afisata, continutul primeste loc sub el: altfel acopera
+   ultimul rand din lista sau ultima scurtatura, exact cum se intampla. */
+body.is-recording .tab-pane:not(.flush){padding-bottom:96px}
+
+/* Strans: ramane un punct rosu si distanta, lipit in dreapta. Se vede ca
+   inregistrezi fara sa stea o banda peste toata latimea ecranului. */
+/* Strans, se aseaza in STANGA: dreapta jos e ocupata de zoom si de
+   atribuirea Leaflet, si se suprapuneau pe tab-ul hartii. */
+.rec-banner.mini{right:auto;width:auto;padding:8px 10px;gap:8px}
+.rec-banner.mini .rec-title,.rec-banner.mini .rec-map{display:none}
+.rec-banner.mini .rec-stats{margin-top:0;font-size:11px;color:var(--ink-2)}
+body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
+.rec-x{
+  flex:none;width:30px;height:30px;border-radius:8px;border:1px solid var(--line);
+  background:var(--surface-3);color:var(--ink-3);font-size:15px;line-height:1;cursor:pointer;
+}
 
 /* ---------- liste de fisiere si sesiuni ---------- */
 .list-body{padding:6px 0}
@@ -494,6 +520,73 @@ header{
 
 /* Cinci tab-uri in loc de patru: eticheta trebuie sa incapa pe ecrane inguste. */
 .nav-btn{font-size:9.5px;letter-spacing:.03em}
+
+/* ---------- buton-iconita generic ---------- */
+.icon-btn{
+  flex:none;width:38px;height:38px;border-radius:10px;display:grid;place-items:center;
+  background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2);cursor:pointer;
+}
+.icon-btn svg{width:18px;height:18px}
+.icon-btn:active{background:var(--surface-3);color:var(--ink)}
+.header-help{width:34px;height:34px;margin-right:8px}
+.header-help svg{width:16px;height:16px}
+
+/* Reconectare in curs: textul pulseaza, ca sa se vada ca aplicatia incearca
+   si nu ca a renuntat. */
+#link-text.retrying{color:var(--warn);animation:recPulse 1.4s ease-in-out infinite}
+
+/* ---------- estimarea de baterie ---------- */
+.hero-batt-wrap{margin-left:auto;text-align:right;flex:none}
+.batt-eta{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:2px}
+
+/* ---------- starea de livrare a mesajului ---------- */
+.msg-status{
+  display:block;margin-top:4px;
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;
+  color:rgba(255,255,255,.55);
+}
+.msg-status.sent{color:rgba(255,255,255,.75)}
+.msg-status.failed{color:#FFD9D5;font-weight:700}
+.msg-status.unknown{color:rgba(255,255,255,.5)}
+
+/* ---------- cautare si mesaje gata facute ---------- */
+.search-wrap{max-height:0;overflow:hidden;transition:max-height .2s ease;flex:none}
+.search-wrap.open{max-height:64px;padding:10px 14px 0}
+.quick-bar{
+  display:flex;gap:7px;overflow-x:auto;flex:none;
+  padding:9px 14px 0;scrollbar-width:none;
+}
+.quick-bar::-webkit-scrollbar{display:none}
+.chip{
+  flex:none;min-height:34px;padding:0 13px;border-radius:999px;white-space:nowrap;
+  background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2);
+  font-family:var(--sans);font-size:12.5px;font-weight:500;cursor:pointer;
+}
+.chip:active{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* ---------- ghidul de la prima pornire ---------- */
+#guide{
+  position:fixed;inset:0;z-index:1200;display:none;
+  align-items:center;justify-content:center;padding:22px;
+  background:rgba(6,7,9,.86);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+}
+#guide.show{display:flex}
+.guide-card{
+  width:100%;max-width:380px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-lg);padding:24px 22px 18px;
+}
+.guide-title{font-size:20px;font-weight:700;color:var(--ink);margin-bottom:11px}
+.guide-body{font-size:14px;line-height:1.65;color:var(--ink-2)}
+.guide-body b{color:var(--ink);font-weight:600}
+.guide-dots{display:flex;gap:6px;justify-content:center;margin:20px 0 16px}
+.guide-dots span{width:6px;height:6px;border-radius:50%;background:var(--surface-3)}
+.guide-dots span.on{background:var(--accent);width:18px;border-radius:3px}
+.guide-actions{display:flex;gap:9px}
+.guide-actions .btn{flex:1}
+.guide-skip{
+  display:block;margin:12px auto 0;background:none;border:0;cursor:pointer;
+  color:var(--ink-3);font-family:var(--sans);font-size:12.5px;padding:6px 10px;
+}
 
 /* ---------- notificari scurte ---------- */
 #toasts{
@@ -711,6 +804,11 @@ header{
         <span class="sec-badge" id="sec-badge">PUBLIC</span></div>
     </div>
   </div>
+  <button class="icon-btn header-help" onclick="openGuide()" aria-label="How this works">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a2.8 2.8 0 1 1 3.6 2.7c-.6.2-.8.7-.8 1.3v.3"/><path d="M12 17h.01"/>
+    </svg>
+  </button>
   <button class="btn-connect" id="btn-connect">CONNECT</button>
 </header>
 
@@ -729,7 +827,10 @@ header{
         <div class="hero-title" id="hero-title">Not connected</div>
         <div class="hero-sub" id="hero-sub">Tap CONNECT to pair over Bluetooth</div>
       </div>
-      <div class="hero-batt" id="val-batt">--%</div>
+      <div class="hero-batt-wrap">
+        <div class="hero-batt" id="val-batt">--%</div>
+        <div class="batt-eta" id="batt-eta"></div>
+      </div>
     </div>
 
     <div class="card">
@@ -777,20 +878,40 @@ header{
         </div>
       </div>
     </div>
+
+    <div class="card">
+      <div class="card-head">This trip</div>
+      <div class="rows" id="trip-body"></div>
+    </div>
   </div>
 
   <!-- ---------------- MESAJE ---------------- -->
   <div id="tab-comms" class="tab-pane flush">
     <div class="comms-top">
-      <span class="comms-label">Messages</span>
+      <button class="icon-btn" onclick="toggleSearch()" aria-label="Search messages">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+        </svg>
+      </button>
       <div class="seg">
         <button class="active" id="sec-pub" onclick="setSecureMode('OFF')">PUBLIC</button>
         <button id="sec-sec" onclick="setSecureMode('ON')">SECURE</button>
       </div>
     </div>
+
+    <div class="search-wrap" id="search-wrap">
+      <input type="search" id="chat-search" class="input-box" placeholder="Search messages&hellip;"
+             oninput="filterChat()">
+    </div>
+
     <div class="messages" id="chat-box">
       <div class="chat-empty" id="chat-empty">No messages yet.<br>Anything you send goes out over LoRa.</div>
+      <div class="chat-empty hidden" id="chat-nohit">Nothing matches that.</div>
     </div>
+
+    <!-- Pe frig, cu manusi, tastatura telefonului nu e o optiune. -->
+    <div class="quick-bar" id="quick-bar"></div>
+
     <div class="input-row">
       <input type="text" id="msg-input" class="input-box" placeholder="Public message&hellip;">
       <button class="btn-send" id="btn-send-msg" onclick="sendTextInput()" aria-label="Send">
@@ -810,6 +931,11 @@ header{
       </div>
 
       <div class="map-tools">
+        <button class="map-tool" id="btn-edit" onclick="toggleSheet()" aria-label="Route tools">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>
+          </svg>
+        </button>
         <button class="map-tool" id="btn-follow" onclick="locateUser()" aria-label="Follow GLYPH">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <circle cx="12" cy="12" r="7"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/>
@@ -838,9 +964,9 @@ header{
       </div>
     </div>
 
-    <div class="sheet">
-      <button class="sheet-grip" type="button" aria-label="Show or hide the route panel"
-              onclick="toggleSheet(this)"></button>
+    <div class="sheet gone" id="route-sheet">
+      <button class="sheet-grip" type="button" aria-label="Hide the route panel"
+              onclick="toggleSheet()"></button>
 
       <div class="offline-note" id="offline-note">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -1022,11 +1148,27 @@ header{
 <!-- Se vede din orice tab cat timp GLYPH inregistreaza. -->
 <div id="rec-banner" class="rec-banner hidden">
   <span class="rec-dot"></span>
-  <div style="flex:1;min-width:0">
+  <div style="flex:1;min-width:0" onclick="toggleRecBanner()">
     <div class="rec-title">Recording track</div>
     <div class="rec-stats" id="rec-stats">0 pts</div>
   </div>
-  <button class="mini" onclick="switchTab('tab-map')">MAP</button>
+  <button class="mini rec-map" onclick="switchTab('tab-map')">MAP</button>
+  <button class="rec-x" id="rec-x" onclick="toggleRecBanner()" aria-label="Shrink">&minus;</button>
+</div>
+
+
+<!-- Ghid scurt, o singura data la prima pornire; se poate relua din antet. -->
+<div id="guide">
+  <div class="guide-card">
+    <div class="guide-title" id="guide-title"></div>
+    <div class="guide-body" id="guide-body"></div>
+    <div class="guide-dots" id="guide-dots"></div>
+    <div class="guide-actions">
+      <button class="btn" id="guide-back" onclick="guideBack()">BACK</button>
+      <button class="btn primary" id="guide-next" onclick="guideNext()">NEXT</button>
+    </div>
+    <button class="guide-skip" onclick="closeGuide()">Skip</button>
+  </div>
 </div>
 
 <div id="toasts"></div>
@@ -1121,9 +1263,18 @@ header{
 
     document.getElementById('btn-connect').addEventListener('click', async () => {
         if (isConnected) {
-            if(bleDevice) bleDevice.gatt.disconnect();
+            // Deconectare ceruta de om: nu incercam sa ne legam la loc. Fara
+            // steagul asta, butonul DISCONNECT ar fi urmat imediat de o
+            // reconectare automata, ceea ce e exact pe dos fata de intentie.
+            userDisconnected = true;
+            stopReconnect();
+            if (bleDevice) bleDevice.gatt.disconnect();
             return;
         }
+
+        // Reincercare manuala in timp ce reconectarea automata astepta.
+        if (reconnectTimer) { stopReconnect(); }
+        userDisconnected = false;
 
         if (!navigator.bluetooth) {
             showAlert("Unsupported Browser", "Please use Chrome (Android) or Bluefy (iOS) to connect via Web Bluetooth.");
@@ -1160,6 +1311,7 @@ header{
 
     function onConnected() {
         isConnected = true;
+        stopReconnect();
         document.getElementById('status-dot').classList.add('on');
         document.getElementById('link-text').innerText = 'Connected';
         const btn = document.getElementById('btn-connect');
@@ -1179,6 +1331,57 @@ header{
         // Cerem starea imediat, in loc sa asteptam ciclul de telemetrie: altfel
         // butonul SECURE si numele echipei arata gresit primele 5 secunde.
         setTimeout(() => sendCmd('CMD_STATE'), 400);
+    }
+
+    // =====================================================================
+    // RECONECTARE AUTOMATA
+    //
+    // O iesire din raza de 30 de secunde insemna pana acum o gaura in traseu
+    // si o reconectare de mana. Obiectul BluetoothDevice ramane valid dupa
+    // deconectare, deci putem reincerca gatt.connect() fara sa mai cerem
+    // utilizatorului sa aleaga aparatul din lista.
+    //
+    // Pauza creste (2, 4, 8, 15, 30 secunde) si se opreste acolo: la fiecare
+    // incercare radioul telefonului se trezeste, si o reincercare pe secunda
+    // ar goli bateria fara sa ajute cu nimic.
+    // =====================================================================
+    let reconnectTimer = null;
+    let reconnectStep = 0;
+    let userDisconnected = false;
+    const RECONNECT_DELAYS = [2000, 4000, 8000, 15000, 30000];
+
+    function stopReconnect() {
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        reconnectStep = 0;
+        const el = document.getElementById('link-text');
+        if (el) el.classList.remove('retrying');
+    }
+
+    function scheduleReconnect() {
+        if (userDisconnected || !bleDevice || reconnectTimer) return;
+        const delay = RECONNECT_DELAYS[Math.min(reconnectStep, RECONNECT_DELAYS.length - 1)];
+        reconnectStep++;
+        document.getElementById('link-text').innerText =
+            'Reconnecting… (' + Math.round(delay / 1000) + 's)';
+        document.getElementById('link-text').classList.add('retrying');
+
+        reconnectTimer = setTimeout(async () => {
+            reconnectTimer = null;
+            if (userDisconnected || isConnected) return;
+            try {
+                bleServer = await bleDevice.gatt.connect();
+                const service = await bleServer.getPrimaryService(bleServiceUUID);
+                txChar = await service.getCharacteristic(bleWriteUUID);
+                rxChar = await service.getCharacteristic(bleNotifyUUID);
+                await rxChar.startNotifications();
+                rxChar.addEventListener('characteristicvaluechanged', handleIncomingData);
+                stopReconnect();
+                onConnected();
+                showToast('Reconnected to GLYPH', 'success');
+            } catch (e) {
+                scheduleReconnect();
+            }
+        }, delay);
     }
 
     function onDisconnected() {
@@ -1219,7 +1422,14 @@ header{
 
         // O sesiune de inregistrare ramane deschisa: aparatul poate fi inca in
         // REC, doar legatura a cazut. La reconectare, SYS_REC o continua.
-        alertOnce('link', true, 'Bluetooth link to GLYPH lost', 'error');
+        if (!userDisconnected) {
+            alertOnce('link', true, 'Bluetooth link to GLYPH lost', 'error');
+            scheduleReconnect();
+        }
+
+        // Mesajele ramase in asteptare nu mai pot fi confirmate.
+        for (const [id, rec] of pendingTx) { clearTimeout(rec.timer); setMsgStatus(id, 'unknown'); }
+        pendingTx.clear();
     }
 
     // Comenzile catre aparat nu au sens fara legatura. Se sting vizibil, in loc
@@ -1290,8 +1500,10 @@ header{
             // Sub 20% coloram cifra: pe teren, procentul e informatia dupa care
             // decizi daca mai pornesti radioul.
             batt.classList.toggle('low', !isNaN(pct) && pct <= 20);
-            if (!isNaN(pct)) alertOnce('batt', pct <= BATTERY_ALERT_PCT,
-                'GLYPH battery at ' + pct + '%');
+            if (!isNaN(pct)) {
+                alertOnce('batt', pct <= BATTERY_ALERT_PCT, 'GLYPH battery at ' + pct + '%');
+                feedBattery(pct);
+            }
             return;
         }
         if (val.startsWith("SYS_GPS:")) {
@@ -1312,6 +1524,7 @@ header{
             if(parts.length >= 2) {
                 document.getElementById('val-temp').innerText = parts[0] + "°C";
                 document.getElementById('val-hum').innerText = parts[1] + "%";
+                feedTrip('temp', parseFloat(parts[0]));
             }
             return;
         }
@@ -1417,15 +1630,22 @@ header{
             return;
         }
         
-        for (let i = 0; i < recentTxMessages.length; i++) {
-            if (val.includes(recentTxMessages[i]) && val.toLowerCase().includes("tx")) {
-                recentTxMessages.splice(i, 1);
-                return; 
-            }
+        // Aparatul trimite "[TX]: ..." DUPA o transmisie radio reusita. Inainte
+        // il aruncam ca sa nu apara duplicat in chat; acum il folosim ca dovada
+        // ca mesajul chiar a plecat, nu doar ca a ajuns la aparat prin Bluetooth.
+        if (val.startsWith("[TX]:")) { confirmOutgoing(val); return; }
+
+        if (val.startsWith("[SYS] Transmit failed")
+            || val.startsWith("[SYS] Encryption failed")
+            || val.startsWith("[SYS] Radio unavailable")) {
+            failOldestOutgoing();
+            appendMsg(val, 'rx');
+            return;
         }
 
         appendMsg(val, 'rx');
         logEvent('rx', val);
+        feedTrip('rx');
         maybePinFromMessage(val);
 
         if (navigator.vibrate) navigator.vibrate(200);
@@ -1468,7 +1688,8 @@ header{
         }
     }
 
-    function appendMsg(text, type) {
+    function appendMsg(text, type, opts) {
+        opts = opts || {};
         const box = document.getElementById('chat-box');
         const empty = document.getElementById('chat-empty');
         if (empty) empty.remove();
@@ -1492,9 +1713,26 @@ header{
             div.className = `msg ${type}`;
             if (type === 'tx' && isSecureMode) div.classList.add('secure');
             div.innerText = text;
+            if (type === 'tx') {
+                // Linia de stare de sub bula: "sending…" pana cand aparatul
+                // confirma ca a plecat chiar pe radio.
+                const st = document.createElement('span');
+                st.className = 'msg-status ' + (opts.status || 'pending');
+                st.innerText = opts.status === 'sent' ? 'sent on air'
+                             : opts.status === 'failed' ? 'NOT SENT'
+                             : opts.status === 'unknown' ? 'no confirmation'
+                             : 'sending…';
+                div.appendChild(st);
+            }
         }
-        
+
+        if (opts.id) div.dataset.msgid = opts.id;
         box.appendChild(div);
+        if (!opts.restored) {
+            saveMessage({ id: opts.id || newMsgId(), text, type,
+                          status: opts.status || (type === 'tx' ? 'pending' : 'rx'),
+                          ts: Date.now() });
+        }
         while (box.children.length > MAX_CHAT_MESSAGES) box.removeChild(box.firstChild);
         box.scrollTop = box.scrollHeight;
     }
@@ -1514,14 +1752,20 @@ header{
         const inp = document.getElementById('msg-input');
         const text = inp.value.trim();
         if (!text) return;
+        if (await sendMessageText(text)) inp.value = '';
+    }
+
+    async function sendMessageText(text) {
+        const id = newMsgId();
         if (await sendCmd(text)) {
-            appendMsg(text, 'tx');
-            recentTxMessages.push(text);
-            if (recentTxMessages.length > 10) recentTxMessages.shift();
-            inp.value = '';
-        } else {
-            showAlert("Not sent", "The message could not be delivered to the device.");
+            appendMsg(text, 'tx', { id, status: 'pending' });
+            trackOutgoing(id, text);
+            logEvent('tx', text);
+            feedTrip('tx');
+            return true;
         }
+        showAlert("Not sent", "The message could not be delivered to the device.");
+        return false;
     }
     document.getElementById('msg-input').addEventListener('keypress', (e) => { if(e.key === 'Enter') sendTextInput(); });
 
@@ -1825,13 +2069,19 @@ header{
         setTimeout(() => map.invalidateSize(), 60);
     }
 
-    // Panoul de jos se poate restrange, ca harta sa ocupe tot ecranul pe telefon.
-    // Leaflet trebuie anuntat dupa ce se schimba inaltimea, altfel deseneaza gresit.
-    function toggleSheet(btn) {
-        const sheet = btn.parentElement;
-        const collapsed = sheet.classList.toggle('collapsed');
-        btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-        if (map) setTimeout(() => map.invalidateSize(), 210);
+    // Uneltele de traseu stau ascunse: harta ia tot ecranul, care e ce vrei sa
+    // vezi cat mergi. Butonul-creion le cheama cand chiar desenezi ceva.
+    // Leaflet trebuie anuntat dupa ce se schimba inaltimea, altfel deseneaza
+    // harta la dimensiunea veche si raman dungi gri.
+    function toggleSheet() {
+        const sheet = document.getElementById('route-sheet');
+        const open = sheet.classList.toggle('gone') === false;
+        const btn = document.getElementById('btn-edit');
+        if (btn) {
+            btn.classList.toggle('editing', open);
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+        if (map) setTimeout(() => map.invalidateSize(), 240);
     }
 
     function addPointToRoute(latlng) {
@@ -2148,7 +2398,7 @@ header{
     // =====================================================================
 
     const DB_NAME = 'glyph';
-    const DB_VERSION = 1;
+    const DB_VERSION = 2;
     let dbPromise = null;
 
     function openDB() {
@@ -2160,6 +2410,11 @@ header{
                 const db = req.result;
                 if (!db.objectStoreNames.contains('sessions')) {
                     db.createObjectStore('sessions', { keyPath: 'id' });
+                }
+                // Conversatia se pierdea la inchiderea aplicatiei. Acum se pastreaza,
+                // cu tot cu starea de livrare a fiecarui mesaj trimis.
+                if (!db.objectStoreNames.contains('messages')) {
+                    db.createObjectStore('messages', { keyPath: 'id' });
                 }
             };
             req.onsuccess = () => resolve(req.result);
@@ -2274,11 +2529,33 @@ header{
         }
     }
 
+    // Banda se poate strange la un punct rosu si distanta, si tine minte alegerea:
+    // e utila, dar nu are de ce sa stea peste continut la fiecare deschidere.
+    let recMini = false;
+    try { recMini = localStorage.getItem('glyph_rec_mini') === '1'; } catch (e) {}
+
+    function toggleRecBanner() {
+        recMini = !recMini;
+        try { localStorage.setItem('glyph_rec_mini', recMini ? '1' : '0'); } catch (e) {}
+        renderRecBanner();
+    }
+
     function renderRecBanner() {
         const el = document.getElementById('rec-banner');
         if (!el) return;
-        if (!activeSession) { el.classList.add('hidden'); return; }
+        if (!activeSession) {
+            el.classList.add('hidden');
+            document.body.classList.remove('is-recording', 'rec-mini');
+            return;
+        }
         el.classList.remove('hidden');
+        el.classList.toggle('mini', recMini);
+        // Clasele de pe body rezerva loc sub continut, ca banda sa nu acopere
+        // ultimul rand din lista sau ultima scurtatura.
+        document.body.classList.add('is-recording');
+        document.body.classList.toggle('rec-mini', recMini);
+        const x = document.getElementById('rec-x');
+        if (x) x.innerHTML = recMini ? '&plus;' : '&minus;';
         const mins = Math.floor((Date.now() - activeSession.startedAt) / 60000);
         document.getElementById('rec-stats').innerText =
             activeSession.points.length + ' pts · '
@@ -2502,6 +2779,292 @@ header{
         }
     }
 
+
+
+    // =====================================================================
+    // CONVERSATIA: pastrata pe telefon, cu stare de livrare
+    //
+    // "Trimis" inseamna doua lucruri diferite si pana acum aplicatia le
+    // confunda: mesajul a ajuns la aparat prin Bluetooth, si mesajul chiar a
+    // plecat pe radio. Aparatul raspunde cu "[TX]: ..." doar dupa o transmisie
+    // reusita, si cu "[SYS] Transmit failed" cand esueaza - deci putem arata
+    // diferenta in loc s-o ascundem.
+    // =====================================================================
+
+    const MAX_STORED_MESSAGES = 400;
+    const pendingTx = new Map();       // id -> { text, timer }
+    const TX_ACK_TIMEOUT_MS = 12000;
+
+    function newMsgId() {
+        return 'M' + Date.now() + Math.random().toString(36).slice(2, 6);
+    }
+
+    async function saveMessage(rec) {
+        try {
+            await dbPut('messages', rec);
+            const all = await dbGetAll('messages');
+            if (all.length > MAX_STORED_MESSAGES) {
+                all.sort((a, b) => a.ts - b.ts);
+                for (let i = 0; i < all.length - MAX_STORED_MESSAGES; i++) {
+                    await dbDelete('messages', all[i].id);
+                }
+            }
+        } catch (e) {}
+    }
+
+    function setMsgStatus(id, status) {
+        const el = document.querySelector('[data-msgid="' + id + '"] .msg-status');
+        if (el) {
+            el.className = 'msg-status ' + status;
+            el.innerText = status === 'sent' ? 'sent on air'
+                         : status === 'failed' ? 'NOT SENT'
+                         : status === 'unknown' ? 'no confirmation'
+                         : 'sending…';
+        }
+        dbGetAll('messages').then(all => {
+            const rec = all.find(m => m.id === id);
+            if (rec) { rec.status = status; dbPut('messages', rec).catch(() => {}); }
+        }).catch(() => {});
+    }
+
+    function trackOutgoing(id, text) {
+        const timer = setTimeout(() => {
+            // Aparatul nu a confirmat nici reusita, nici esecul. Cel mai probabil
+            // s-a intrerupt legatura; nu spunem "trimis" pe baza tacerii.
+            if (pendingTx.has(id)) { pendingTx.delete(id); setMsgStatus(id, 'unknown'); }
+        }, TX_ACK_TIMEOUT_MS);
+        pendingTx.set(id, { text, timer });
+    }
+
+    // Chemata cand vine "[TX]: ..." de la aparat.
+    function confirmOutgoing(echo) {
+        for (const [id, rec] of pendingTx) {
+            if (echo.includes(rec.text)) {
+                clearTimeout(rec.timer);
+                pendingTx.delete(id);
+                setMsgStatus(id, 'sent');
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Chemata la orice mesaj de esec venit de la aparat. Marcam cel mai vechi
+    // mesaj in asteptare: aparatul trimite pe rand, deci ala e cel picat.
+    function failOldestOutgoing() {
+        const first = pendingTx.keys().next();
+        if (first.done) return false;
+        const id = first.value;
+        clearTimeout(pendingTx.get(id).timer);
+        pendingTx.delete(id);
+        setMsgStatus(id, 'failed');
+        return true;
+    }
+
+    async function restoreChat() {
+        let all = [];
+        try { all = await dbGetAll('messages'); } catch (e) { return; }
+        if (!all.length) return;
+        all.sort((a, b) => a.ts - b.ts);
+        for (const m of all) {
+            // Un mesaj ramas "in curs" dintr-o sesiune veche nu mai are cum sa
+            // fie confirmat: il aratam ca neconfirmat, nu ca trimis.
+            appendMsg(m.text, m.type, { id: m.id, status: m.status === 'pending' ? 'unknown' : m.status, restored: true });
+        }
+    }
+
+    /* ---------- mesaje scurte gata facute ---------- */
+    const QUICK_MESSAGES = ['OK', 'On my way', 'Arrived', 'Wait for me', 'Send position', 'Need help'];
+
+    function renderQuickBar() {
+        const bar = document.getElementById('quick-bar');
+        if (!bar) return;
+        bar.innerHTML = QUICK_MESSAGES.map(m =>
+            '<button class="chip" onclick="sendQuick(' + JSON.stringify(m).replace(/"/g, '&quot;') + ')">'
+            + escapeHtml(m) + '</button>').join('');
+    }
+
+    async function sendQuick(text) {
+        if (text === 'Send position') {
+            if (!lastDeviceFix) { showToast('No position from GLYPH yet', 'warning'); return; }
+            text = lastDeviceFix.lat.toFixed(5) + ',' + lastDeviceFix.lng.toFixed(5);
+        }
+        await sendMessageText(text);
+    }
+
+    /* ---------- cautare in conversatie ---------- */
+    function filterChat() {
+        const q = (document.getElementById('chat-search').value || '').trim().toLowerCase();
+        let shown = 0;
+        document.querySelectorAll('#chat-box .msg').forEach(el => {
+            const hit = !q || el.innerText.toLowerCase().includes(q);
+            el.hidden = !hit;
+            if (hit) shown++;
+        });
+        const none = document.getElementById('chat-nohit');
+        if (none) none.classList.toggle('hidden', !(q && shown === 0));
+    }
+
+    function toggleSearch() {
+        const w = document.getElementById('search-wrap');
+        const open = w.classList.toggle('open');
+        if (open) {
+            document.getElementById('chat-search').focus();
+        } else {
+            document.getElementById('chat-search').value = '';
+            filterChat();
+        }
+    }
+
+    // =====================================================================
+    // CAT MAI TINE BATERIA
+    //
+    // Din procentele primite in timp, nu dintr-o tabela fixa: consumul difera
+    // mult intre NORMAL si ECO, si intre iarna si vara. Panta se calculeaza pe
+    // ultima ora, ca o schimbare de mod sa se vada repede in estimare.
+    // =====================================================================
+
+    const battSamples = [];            // { t, pct }
+    const BATT_WINDOW_MS = 60 * 60 * 1000;
+
+    function feedBattery(pct) {
+        const now = Date.now();
+        battSamples.push({ t: now, pct });
+        while (battSamples.length && now - battSamples[0].t > BATT_WINDOW_MS) battSamples.shift();
+        renderBatteryEstimate(pct);
+    }
+
+    function batteryHoursLeft(pct) {
+        if (battSamples.length < 2) return null;
+        const a = battSamples[0], b = battSamples[battSamples.length - 1];
+        const hours = (b.t - a.t) / 3600000;
+        // Sub 10 minute de observatie, panta e zgomot, nu tendinta.
+        if (hours < 0.17) return null;
+        const drop = a.pct - b.pct;
+        if (drop <= 0) return null;            // se incarca, sau nu s-a miscat
+        return pct / (drop / hours);
+    }
+
+    function renderBatteryEstimate(pct) {
+        const el = document.getElementById('batt-eta');
+        if (!el) return;
+        const h = batteryHoursLeft(pct);
+        if (h === null) { el.innerText = ''; return; }
+        el.innerText = h < 1 ? '~' + Math.round(h * 60) + ' min left'
+                     : '~' + (h < 10 ? h.toFixed(1) : Math.round(h)) + ' h left';
+    }
+
+    // =====================================================================
+    // REZUMATUL IESIRII
+    // =====================================================================
+
+    const trip = { start: Date.now(), msgSent: 0, msgRecv: 0, tMin: null, tMax: null };
+
+    function feedTrip(kind, value) {
+        if (kind === 'tx') trip.msgSent++;
+        else if (kind === 'rx') trip.msgRecv++;
+        else if (kind === 'temp' && !isNaN(value)) {
+            trip.tMin = trip.tMin === null ? value : Math.min(trip.tMin, value);
+            trip.tMax = trip.tMax === null ? value : Math.max(trip.tMax, value);
+        }
+        renderTrip();
+    }
+
+    function renderTrip() {
+        const el = document.getElementById('trip-body');
+        if (!el) return;
+        const mins = Math.round((Date.now() - trip.start) / 60000);
+        const dist = activeSession ? sessionDistanceKm(activeSession.points) : 0;
+        const rows = [
+            ['Out for', mins < 60 ? mins + ' min' : Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm'],
+            ['Tracked', dist.toFixed(2) + ' km'],
+            ['Messages', trip.msgSent + ' sent · ' + trip.msgRecv + ' received'],
+            ['Temperature', trip.tMin === null ? '--'
+                : trip.tMin.toFixed(1) + '°C to ' + trip.tMax.toFixed(1) + '°C']
+        ];
+        el.innerHTML = rows.map(r =>
+            '<div class="row"><span class="row-label">' + r[0] + '</span>'
+            + '<span class="row-value">' + escapeHtml(r[1]) + '</span></div>').join('');
+    }
+
+    // =====================================================================
+    // GHIDUL DE LA PRIMA PORNIRE
+    // =====================================================================
+
+    const GUIDE_KEY = 'glyph_guide_seen_v1';
+    const GUIDE = [
+        { t: 'Five tabs',
+          b: '<b>Status</b> — what the device reports right now.<br>'
+           + '<b>Comms</b> — messages over LoRa, public or encrypted.<br>'
+           + '<b>Routes</b> — the map, following GLYPH.<br>'
+           + '<b>Files</b> — recorded tracks and the memory card.<br>'
+           + '<b>Control</b> — the device, driven from here.' },
+        { t: 'The map follows GLYPH',
+          b: 'Not your phone. The green dot is the device; the map keeps up with it '
+           + 'until you drag the map, and the crosshair button resumes.<br><br>'
+           + 'The pencil button opens the drawing tools. Long-press anywhere to '
+           + 'broadcast those coordinates to your team.' },
+        { t: 'Press REC on the device',
+          b: 'The track draws itself on the phone while you walk, and is saved here '
+           + 'even if you close the app. Find it later under <b>Files</b>, open it on '
+           + 'the map or export it as KML.' },
+        { t: 'Button combinations',
+          b: '<b>A + B</b> — start or stop recording<br>'
+           + '<b>B + C</b> — broadcast SOS (hold 10 seconds)<br>'
+           + '<b>A + C</b> — shut the device down<br><br>'
+           + 'All three are also buttons under <b>Control</b>, and holding A, B or C '
+           + 'there sends a long press.' }
+    ];
+    let guideStep = 0;
+
+    function renderGuide() {
+        const g = GUIDE[guideStep];
+        document.getElementById('guide-title').innerText = g.t;
+        document.getElementById('guide-body').innerHTML = g.b;
+        document.getElementById('guide-dots').innerHTML =
+            GUIDE.map((_, i) => '<span class="' + (i === guideStep ? 'on' : '') + '"></span>').join('');
+        document.getElementById('guide-next').innerText =
+            guideStep === GUIDE.length - 1 ? 'START' : 'NEXT';
+        document.getElementById('guide-back').style.visibility = guideStep ? 'visible' : 'hidden';
+    }
+
+    function openGuide() {
+        guideStep = 0;
+        renderGuide();
+        document.getElementById('guide').classList.add('show');
+    }
+
+    function guideNext() {
+        if (guideStep < GUIDE.length - 1) { guideStep++; renderGuide(); return; }
+        closeGuide();
+    }
+
+    function guideBack() { if (guideStep) { guideStep--; renderGuide(); } }
+
+    function closeGuide() {
+        document.getElementById('guide').classList.remove('show');
+        try { localStorage.setItem(GUIDE_KEY, '1'); } catch (e) {}
+    }
+
+    function maybeShowGuide() {
+        let seen = false;
+        try { seen = localStorage.getItem(GUIDE_KEY) === '1'; } catch (e) {}
+        if (seen) return;
+        // Cat timp ecranul de blocare e sus, ghidul ar sta in spatele lui si
+        // s-ar "consuma" fara ca cineva sa-l vada. Asteptam deblocarea.
+        const overlay = document.getElementById('glyph-security-overlay');
+        const tick = () => {
+            // offsetParent e null si pentru un element position:fixed VIZIBIL,
+            // deci nu spune nimic aici. Ne uitam la stilul calculat.
+            if (!overlay || getComputedStyle(overlay).display === 'none') {
+                openGuide();
+            } else {
+                setTimeout(tick, 700);
+            }
+        };
+        setTimeout(tick, 600);
+    }
+
     // =====================================================================
     // PORNIRE
     // =====================================================================
@@ -2512,6 +3075,11 @@ header{
         recoverSessions().then(renderSessions).catch(() => {});
         // Cronometrul din banda de inregistrare: minutele trec si fara pozitii noi.
         setInterval(renderRecBanner, 30000);
+        setInterval(renderTrip, 60000);
+        renderQuickBar();
+        renderTrip();
+        restoreChat().catch(() => {});
+        maybeShowGuide();
     })();
 
 </script>
