@@ -52,7 +52,37 @@ bool processVirtualCommand(String cmd) {
         secureMode = (state == "ON");
         requestUIUpdate = true;
         fullRefreshNeeded = false;
-        notifyPhone("[SYS] Secure Mode: " + state);
+        // Inainte trimiteam "[SYS] Secure Mode: ON", iar aplicatia il afisa ca
+        // pe un mesaj in chat - la fiecare comutare, doua randuri de gunoi in
+        // conversatie. Acum e o notificare de stare, pe care aplicatia o
+        // foloseste ca sa aprinda butonul si insigna din antet.
+        notifyPhone(secureMode ? "SYS_SEC:1" : "SYS_SEC:0");
+        return true;
+    }
+
+    // --- cardul SD, vazut de pe telefon ---
+    if (cmd == "CMD_LS") {
+        sendSDListing();
+        return true;
+    }
+
+    if (cmd.startsWith("CMD_GET:")) {
+        startFileTransfer(cmd.substring(8));
+        return true;
+    }
+
+    if (cmd == "CMD_GET_ABORT") {
+        abortFileTransfer(NULL);
+        return true;
+    }
+
+    // Telefonul cere starea imediat dupa conectare, ca sa nu astepte ciclul de
+    // telemetrie de 5 secunde ca sa afle in ce mod e aparatul.
+    if (cmd == "CMD_STATE") {
+        notifyPhone(secureMode ? "SYS_SEC:1" : "SYS_SEC:0"); delay(BLE_NOTIFY_GAP_MS);
+        notifyPhone("SYS_TEAMNAME:" + myTeam);            delay(BLE_NOTIFY_GAP_MS);
+        notifyPhone("SYS_PWR:" + String((int)currentPowerMode)); delay(BLE_NOTIFY_GAP_MS);
+        notifyPhone(sdDetected ? "SYS_SD:1" : "SYS_SD:0");
         return true;
     }
 

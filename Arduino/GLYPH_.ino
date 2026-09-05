@@ -263,6 +263,13 @@ void handleButtons();
 void evaluateSleep();
 void checkBLEInput();
 void sendTelemetryBLE();
+
+// Cardul SD, vazut de pe telefon (glyph_files.ino)
+void sendSDListing();
+void startFileTransfer(const String &rawName);
+void abortFileTransfer(const char *reason);
+void serviceFileTransfer();
+bool fileTransferBusy();
 void updateUI();
 void sendInputPrompt(String msg);
 void logGPS(double lat, double lon, float alt);
@@ -457,6 +464,10 @@ void loop() {
     evaluateSleep(); 
     checkBLEInput(); 
     sendTelemetryBLE(); 
+
+    // Trimite urmatoarele cateva bucati dintr-un fisier cerut de telefon, daca
+    // exista un transfer in curs. Se intoarce imediat cand nu e nimic de facut.
+    serviceFileTransfer(); 
 
     if (promptNeedsResend && deviceConnected && !introMode) {
         promptNeedsResend = false;

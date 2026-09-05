@@ -111,6 +111,24 @@ static const unsigned long BLE_TELEMETRY_INTERVAL_MS = 5000;
 // Pauza intre notificarile BLE consecutive, ca sa nu depasim coada stivei.
 static const unsigned long BLE_NOTIFY_GAP_MS = 15;
 
+// --- acces la cardul SD de pe telefon ---------------------------------------
+// Cat de mare e o bucata de fisier trimisa printr-o notificare. Dupa base64
+// creste cu o treime (160 -> 216 octeti), plus prefixul si cei 3 octeti de
+// antet ATT: incape in MTU-ul de 247 cerut la pornire. Daca telefonul nu
+// accepta MTU mai mare, stiva imparte singura pachetul.
+static const int SD_XFER_CHUNK_BYTES     = 160;
+
+// Bucati trimise la o trecere prin loop(). Mai multe = transfer mai rapid, dar
+// loop() sta mai mult si butoanele raspund mai greu. 4 tine apasarile sub ~80ms.
+static const int SD_XFER_CHUNKS_PER_LOOP = 4;
+
+// Plafon la listare, ca un card plin sa nu inunde telefonul cu notificari.
+static const int SD_LIST_MAX_FILES       = 60;
+
+// MTU cerut la initializarea BLE. Fara el raman 20 de octeti utili per
+// notificare si un traseu de 40 KB s-ar descarca in minute, nu in secunde.
+static const int BLE_REQUESTED_MTU       = 247;
+
 // Cate puncte din traseul curent tinem in memoria RTC (supravietuiesc somnului).
 static const int MAX_BREADCRUMBS = 350;
 

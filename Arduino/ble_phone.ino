@@ -34,6 +34,10 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 
 void initBLE() {
     BLEDevice::init("GLYPH");
+    // Fara asta raman 20 de octeti utili per notificare, iar un traseu de
+    // 40 KB s-ar descarca in minute. Daca telefonul nu accepta, se negociaza
+    // in jos automat - nu e nimic de tratat aici.
+    BLEDevice::setMTU(BLE_REQUESTED_MTU);
     pServer = BLEDevice::createServer();
     pServer->setCallbacks(new MyServerCallbacks());
     BLEService *pService = pServer->createService(SERVICE_UUID);
@@ -101,7 +105,23 @@ void sendTelemetryBLE() {
         snprintf(buf, sizeof(buf), "SYS_HEALTH:%s", bad.length() ? bad.c_str() : "OK");
         notifyPhone(buf); delay(BLE_NOTIFY_GAP_MS);
 
-        notifyPhone(isRecording ? "SYS_REC:1" : "SYS_REC:0");
+        notifyPhone(isRecording ? "SYS_REC:1" : "SYS_REC:0"); delay(BLE_NOTIFY_GAP_MS);
+
+        snprintf(buf, sizeof(buf), "SYS_SD:%d", sdDetected ? 1 : 0);
+        notifyPhone(buf);
+
+        // Colegii de echipa auziti pe radio, ca sa-i poata desena telefonul pe
+        // harta. Varsta in secunde conteaza: o pozitie de acum 20 de minute nu
+        // mai spune unde e omul, si aplicatia o arata stinsa.
+        for (int i = 0; i < teammateCount && i < MAX_TEAMMATES; i++) {
+            if (teammates[i].name.length() == 0) continue;
+            unsigned long ageSec = (millis() - teammates[i].lastSeen) / 1000UL;
+            delay(BLE_NOTIFY_GAP_MS);
+            notifyPhone("SYS_MATE:" + teammates[i].name + "|"
+                        + String(teammates[i].lat, 6) + "|"
+                        + String(teammates[i].lon, 6) + "|"
+                        + String((unsigned long)ageSec));
+        }
     }
 }
 

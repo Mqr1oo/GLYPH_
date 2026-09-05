@@ -90,6 +90,13 @@ void evaluateSleep() {
         return;
     }
 
+    // Nici cat timp trimite un fisier catre telefon: standby-ul sterge ecranul
+    // si taie transferul la jumatate, iar descarcarea ar esua fara explicatie.
+    if (fileTransferBusy()) {
+        sessionActivityTime = millis();
+        return;
+    }
+
     if (inSetupPage() || isRecording) {
         sessionActivityTime = millis(); 
         return; 
