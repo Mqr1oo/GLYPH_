@@ -130,3 +130,116 @@ void serviceFileTransfer() {
 }
 
 bool fileTransferBusy() { return xferActive; }
+
+// ---------------------------------------------------------------------------
+// INCARCAREA UNEI RUTE DE PE TELEFON PE CARD
+//
+// Controlul fluxului e simplu si sigur: aparatul confirma fiecare bucata, iar
+// telefonul o trimite pe urmatoarea abia dupa confirmare. Motivul e ca receptia
+// BLE are un singur sertar (bleRxBuffer); daca telefonul ar trimite in rafala,
+// o bucata ar suprascrie alta inainte ca loop() sa apuce s-o citeasca, si
+// fisierul ar iesi corupt fara ca nimeni sa afle. Cu o singura bucata in zbor,
+// pierderea e imposibila prin constructie.
+// ---------------------------------------------------------------------------
+
+static File     upFile;
+static bool     upActive   = false;
+static uint32_t upExpected = 0;
+static uint32_t upGot      = 0;
+static String   upName     = "";
+
+void abortUpload(const char *reason) {
+    if (upFile) upFile.close();
+    // Un fisier scris pe jumatate e mai rau decat niciunul: pare valid in
+    // lista si se deschide gol. Il stergem.
+    if (upActive && upName.length()) SD.remove("/" + upName);
+    upActive = false;
+    upName = "";
+    if (reason) notifyPhone(String("SYS_PUT_ERR:") + reason);
+}
+
+void startUpload(const String &arg) {
+    if (upActive) abortUpload(NULL);
+
+    int bar = arg.indexOf('|');
+    if (bar <= 0) { notifyPhone("SYS_PUT_ERR:BAD ARGS"); return; }
+    String name = arg.substring(0, bar);
+    uint32_t size = (uint32_t)arg.substring(bar + 1).toInt();
+
+    if (!sdDetected)              { notifyPhone("SYS_PUT_ERR:NO CARD");  return; }
+    if (!isSafeFileName(name))    { notifyPhone("SYS_PUT_ERR:BAD NAME"); return; }
+    if (size == 0 || size > SD_UPLOAD_MAX_BYTES) {
+        notifyPhone("SYS_PUT_ERR:TOO BIG"); return;
+    }
+
+    acquireSD();
+    // "w" trunchiaza: reincarcarea aceleiasi rute o inlocuieste, nu o lipeste
+    // la coada celei vechi.
+    upFile = SD.open("/" + name, FILE_WRITE);
+    if (!upFile) { notifyPhone("SYS_PUT_ERR:CANNOT WRITE"); return; }
+
+    upExpected = size;
+    upGot = 0;
+    upName = name;
+    upActive = true;
+    notifyPhone("SYS_PUT_READY");
+}
+
+void uploadChunk(const String &b64) {
+    if (!upActive) { notifyPhone("SYS_PUT_ERR:NOT STARTED"); return; }
+
+    unsigned char raw[SD_UPLOAD_CHUNK_BYTES + 8];
+    size_t written = 0;
+    if (mbedtls_base64_decode(raw, sizeof(raw), &written,
+                              (const unsigned char*)b64.c_str(), b64.length()) != 0) {
+        abortUpload("DECODE");
+        return;
+    }
+
+    acquireSD();
+    if (upFile.write(raw, written) != written) { abortUpload("WRITE"); return; }
+    upGot += written;
+
+    if (upGot > upExpected) { abortUpload("OVERRUN"); return; }
+
+    // Confirmarea e si semnalul de "trimite urmatoarea".
+    notifyPhone("SYS_PUT_ACK:" + String(upGot));
+}
+
+void finishUpload() {
+    if (!upActive) { notifyPhone("SYS_PUT_ERR:NOT STARTED"); return; }
+
+    upFile.flush();
+    upFile.close();
+
+    if (upGot != upExpected) {
+        // S-a pierdut ceva pe drum. Mai bine niciun fisier decat unul trunchiat.
+        SD.remove("/" + upName);
+        upActive = false;
+        notifyPhone("SYS_PUT_ERR:SHORT");
+        return;
+    }
+
+    String name = upName;
+    upActive = false;
+    upName = "";
+
+    // Lista de pe aparat trebuie sa vada imediat fisierul nou.
+    scanKMLFiles();
+
+    // O ruta planificata pe telefon se deschide singura pe harta aparatului -
+    // asta e tot rostul incarcarii. Fara pasul asta ar trebui sa o cauti de
+    // mana prin meniu, cu manusi, pe frig.
+    String lower = name; lower.toLowerCase();
+    if (lower.endsWith(".kml")) {
+        currentKmlOverlay = "/" + name;
+        loadKMLCache();
+        currentState = PAGE_MAP;
+        fullRefreshNeeded = true;
+        requestUIUpdate = true;
+    }
+
+    notifyPhone("SYS_PUT_DONE:" + name);
+}
+
+bool uploadBusy() { return upActive; }

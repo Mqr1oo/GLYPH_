@@ -129,6 +129,17 @@ static const int SD_LIST_MAX_FILES       = 60;
 // notificare si un traseu de 40 KB s-ar descarca in minute, nu in secunde.
 static const int BLE_REQUESTED_MTU       = 247;
 
+// --- incarcarea unei rute de pe telefon ---
+// Bucata trimisa de telefon, INAINTE de base64. Dupa codare devine 160 de
+// caractere; cu prefixul "CMD_PUTD:" ajunge la 169, sub cei 192 ai sertarului
+// de receptie BLE (BLE_RX_BUF_SIZE). Nu creste valoarea fara sa cresti si
+// sertarul, altfel bucatile ajung taiate si fisierul iese corupt.
+static const int SD_UPLOAD_CHUNK_BYTES = 120;
+
+// Plafon la ce accepta aparatul. O ruta desenata are cativa kilobytes; limita
+// exista ca o apasare gresita sa nu umple cardul.
+static const uint32_t SD_UPLOAD_MAX_BYTES = 262144;
+
 // Cate puncte din traseul curent tinem in memoria RTC (supravietuiesc somnului).
 static const int MAX_BREADCRUMBS = 350;
 

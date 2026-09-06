@@ -92,7 +92,7 @@ void evaluateSleep() {
 
     // Nici cat timp trimite un fisier catre telefon: standby-ul sterge ecranul
     // si taie transferul la jumatate, iar descarcarea ar esua fara explicatie.
-    if (fileTransferBusy()) {
+    if (fileTransferBusy() || uploadBusy()) {
         sessionActivityTime = millis();
         return;
     }

@@ -76,6 +76,12 @@ bool processVirtualCommand(String cmd) {
         return true;
     }
 
+    // --- ruta planificata pe telefon, scrisa pe cardul aparatului ---
+    if (cmd.startsWith("CMD_PUT:"))  { startUpload(cmd.substring(8));  return true; }
+    if (cmd.startsWith("CMD_PUTD:")) { uploadChunk(cmd.substring(9));  return true; }
+    if (cmd == "CMD_PUTEND")         { finishUpload();                 return true; }
+    if (cmd == "CMD_PUTABORT")       { abortUpload(NULL);              return true; }
+
     // Telefonul cere starea imediat dupa conectare, ca sa nu astepte ciclul de
     // telemetrie de 5 secunde ca sa afle in ce mod e aparatul.
     if (cmd == "CMD_STATE") {
