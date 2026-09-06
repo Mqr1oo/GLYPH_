@@ -1760,6 +1760,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         if (val.startsWith("SYS_BUF:")) { setDeviceChunkSize(parseInt(val.substring(8), 10)); return; }
         if (val.startsWith("SYS_RECFILE:")) { noteRecordingFile(val.substring(12).trim()); return; }
         if (val.startsWith("SYS_CHG:")) { setCharging(val.substring(8).trim() === '1'); return; }
+        if (val.startsWith("SYS_UP:"))  { noteUptime(parseInt(val.substring(7), 10)); return; }
         if (val.startsWith("SYS_VER:")) {
             deviceVersion = val.substring(8).trim();
             noteDeviceAnswered();
@@ -1834,6 +1835,9 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         if (val.startsWith("SYS_PUT_ERR:"))  { failUpload(val.substring(12)); return; }
 
         // ---- actualizarea firmware-ului ----
+        // Aparatul sterge partitia inainte sa poata primi ceva: spunem asta in
+        // loc sa lasam o bara care pare inghetata.
+        if (val === "SYS_OTA_ERASE")        { noteOtaErasing(); return; }
         if (val === "SYS_OTA_READY")        { sendNextOtaChunk(); return; }
         if (val.startsWith("SYS_OTA_ACK:")) { sendNextOtaChunk(); return; }
         if (val === "SYS_OTA_DONE")         { finishOtaUI(); return; }
@@ -3553,7 +3557,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         up.timer = setTimeout(() => {
             if (!up) return;
             sendCmd('CMD_PUTABORT');
-            failUpload('no answer from the device');
+            failUpload(stallReason());
         }, 9000);
     }
 
@@ -3770,16 +3774,45 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         if (!/\.bin$/i.test(f.name)) { showToast('That is not a .bin firmware file', 'error'); return; }
         if (f.size < 65536) { showToast('That file is too small to be firmware', 'error'); return; }
 
+        const r = new FileReader();
+        r.onload = () => {
+            const raw = new Uint8Array(r.result);
+            const c = classifyFirmware(raw);
+
+            if (c.kind === 'unknown') {
+                showAlert('Not a usable firmware file',
+                    'This file is not an ESP32 image, or it is damaged. Pick '
+                  + '<code>GLYPH_.ino.bin</code> from the build folder.');
+                return;
+            }
+
+            // Fisierul potrivit e chiar aplicatia. Cel contopit e pentru cablu:
+            // il spunem pe nume in loc sa taiem in tacere din el.
+            if (c.kind === 'merged') {
+                showConfirm('That is the cable file',
+                    '<b>' + escapeHtml(f.name) + '</b> is the ' + Math.round(raw.length / 1024)
+                  + ' KB image meant for flashing over USB: bootloader, partition table '
+                  + 'and application in one.<br><br>Over Bluetooth only the application is '
+                  + 'written, so the right file is <code>GLYPH_.ino.bin</code> ('
+                  + Math.round(c.len / 1024) + ' KB) from the same folder.<br><br>'
+                  + 'Cancel and pick that one, or continue and the application will be cut '
+                  + 'out of this file — the result is identical, it just reads 4 MB to get there.',
+                    () => confirmOtaSend(f.name, raw, c));
+                return;
+            }
+
+            confirmOtaSend(f.name, raw, c);
+        };
+        r.readAsArrayBuffer(f);
+    }
+
+    function confirmOtaSend(name, raw, c) {
         showConfirm('Update firmware',
-            'Send <b>' + escapeHtml(f.name) + '</b> (' + Math.round(f.size / 1024) + ' KB) to GLYPH?'
+            'Send <b>' + escapeHtml(name) + '</b> (' + Math.round(c.len / 1024) + ' KB) to GLYPH?'
             + '<br><br>This takes <b>several minutes</b>. Keep the phone near the device '
             + 'and the screen on. It restarts when done. If anything interrupts it, the '
             + 'device simply keeps the firmware it has now.',
-            () => {
-                const r = new FileReader();
-                r.onload = () => startOta(f.name, new Uint8Array(r.result));
-                r.readAsArrayBuffer(f);
-            });
+            () => startOta(name, raw));
     }
 
     function startOta(name, rawBytes) {
@@ -3795,12 +3828,23 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
             return;
         }
 
-        ota = { name, bytes, sent: 0, timer: null, t0: Date.now() };
+        // Prima asteptare e mai lunga: inainte de a raspunde, aparatul sterge
+        // partitia in care va scrie, si stergerea a 1,4 MB de flash tine
+        // secunde bune in care nu poate trimite nimic.
+        ota = { name, bytes, sent: 0, timer: null, t0: Date.now(), waitMs: 40000 };
         document.getElementById('ota-bar').classList.remove('hidden');
         document.getElementById('ota-name').innerText = name;
         document.getElementById('ota-fill').style.width = '0%';
         sendCmd('CMD_OTA:' + bytes.length);
         armOtaTimeout();
+    }
+
+    // Un transfer care se opreste are trei explicatii, si aplicatia le poate
+    // deosebi: legatura a cazut, aparatul s-a resetat, sau chiar nu raspunde.
+    function stallReason() {
+        if (!isConnected) return 'the Bluetooth link dropped';
+        if (deviceReboots > 0) return 'the device restarted';
+        return 'no answer from the device';
     }
 
     function armOtaTimeout() {
@@ -3809,12 +3853,20 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         ota.timer = setTimeout(() => {
             if (!ota) return;
             sendCmd('CMD_OTAABORT');
-            failOta('no answer from the device');
-        }, 12000);
+            failOta(stallReason());
+        }, ota.waitMs || 12000);
+    }
+
+    function noteOtaErasing() {
+        if (!ota) return;
+        document.getElementById('ota-name').innerText =
+            ota.name + ' — clearing space on the device…';
+        armOtaTimeout();
     }
 
     function sendNextOtaChunk() {
         if (!ota) return;
+        ota.waitMs = 12000;      // stergerea s-a terminat, aparatul raspunde iar
         if (ota.sent >= ota.bytes.length) { sendCmd('CMD_OTAEND'); armOtaTimeout(); return; }
         const slice = ota.bytes.slice(ota.sent, ota.sent + uploadChunkBytes);
         ota.sent += slice.length;
@@ -3894,6 +3946,33 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
 
     let deviceLegacy = false;
     let legacyProbe  = null;
+    let lastUptimeSec = null;     // ultima valoare SYS_UP primita
+    let deviceReboots = 0;        // de cate ori a repornit in sesiunea asta
+
+    // =====================================================================
+    // A CAZUT LEGATURA, SAU S-A RESETAT APARATUL?
+    //
+    // Din telefon arata identic: transferul se opreste si nu mai vine niciun
+    // raspuns. Cauzele n-au insa nimic in comun - una e semnal, cealalta e
+    // firmware sau alimentare - si se repara diferit. Aparatul trimite acum
+    // secundele de la pornire; daca numarul SCADE, s-a repornit, si atunci o
+    // spunem in loc sa dam vina pe Bluetooth.
+    // =====================================================================
+    function noteUptime(sec) {
+        if (isNaN(sec)) return;
+        if (lastUptimeSec !== null && sec < lastUptimeSec - 2) {
+            deviceReboots++;
+            logEvent('link', 'device restarted');
+            showAlert('GLYPH restarted',
+                'The device rebooted just now — it reported being up for '
+              + sec + ' seconds after ' + lastUptimeSec + '. That is not a Bluetooth '
+              + 'problem: the firmware reset, or the power did.<br><br>'
+              + 'If this happens while a transfer is running, the transfer cannot '
+              + 'survive it. Common causes are a battery too low to hold up under '
+              + 'the radio, or a loose battery connector.');
+        }
+        lastUptimeSec = sec;
+    }
     let sawDeviceReply = false;   // a venit MACAR o linie SYS_ de la aparat
 
     const LEGACY_HTML =
@@ -4133,26 +4212,45 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     }
 
     // Intoarce { bytes, note } sau arunca o eroare explicata pe intelesul omului.
-    function extractAppImage(b) {
-        if (b.length < 1024 || b[0] !== ESP_MAGIC) {
-            throw new Error('That file does not look like an ESP32 firmware image.');
-        }
-
-        // Aplicatia la offsetul standard inseamna imagine contopita.
-        const merged = b.length > ESP_APP_OFFSET && b[ESP_APP_OFFSET] === ESP_MAGIC;
-        const off = merged ? ESP_APP_OFFSET : 0;
-
+    // O imagine valida la un anumit offset, verificata cu propria ei suma de
+    // control. Un singur octet 0xE9 nu dovedeste nimic: intr-un fisier de 1,4 MB
+    // orice octet are o sansa din 256 sa arate asa, si atunci aplicatia ar fi
+    // taiata din mijlocul ei si trimisa ca firmware.
+    function validImageAt(b, off) {
         const len = espImageLength(b, off);
-        if (len === null) throw new Error('The firmware image is damaged or truncated.');
-        if (!espChecksumOk(b, off)) {
-            throw new Error('The firmware image failed its own checksum. It may be corrupted.');
-        }
+        if (len === null) return null;
+        return espChecksumOk(b, off) ? len : null;
+    }
 
+    // Ce fel de fisier e acesta? 'app' = imaginea de aplicatie, exact ce se
+    // trimite prin Bluetooth. 'merged' = imaginea de 4 MB pentru cablu.
+    function classifyFirmware(b) {
+        if (b.length < 1024 || b[0] !== ESP_MAGIC) return { kind: 'unknown' };
+
+        // Imagine contopita: bootloader mic la 0, aplicatia la 0x10000, ambele
+        // trecand propria verificare.
+        if (b.length > ESP_APP_OFFSET + 1024) {
+            const appLen = validImageAt(b, ESP_APP_OFFSET);
+            if (appLen !== null) return { kind: 'merged', off: ESP_APP_OFFSET, len: appLen };
+        }
+        const ownLen = validImageAt(b, 0);
+        if (ownLen !== null) return { kind: 'app', off: 0, len: ownLen };
+        return { kind: 'unknown' };
+    }
+
+    // Intoarce { bytes, note } sau arunca o eroare explicata pe intelesul omului.
+    function extractAppImage(b) {
+        const c = classifyFirmware(b);
+        if (c.kind === 'unknown') {
+            throw new Error(b.length < 1024 || b[0] !== ESP_MAGIC
+                ? 'That file does not look like an ESP32 firmware image.'
+                : 'The firmware image is damaged, truncated, or failed its own checksum.');
+        }
         return {
-            bytes: b.slice(off, off + len),
-            note: merged
-                ? 'Extracted the application from the 4 MB combined image (' 
-                  + Math.round(len / 1024) + ' KB).'
+            bytes: b.slice(c.off, c.off + c.len),
+            note: c.kind === 'merged'
+                ? 'Cut the application out of the 4 MB cable image ('
+                  + Math.round(c.len / 1024) + ' KB).'
                 : ''
         };
     }
