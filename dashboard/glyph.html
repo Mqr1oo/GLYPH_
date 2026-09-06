@@ -99,18 +99,28 @@ header{
 /* Indicatorul de inregistrare, mutat in antet: se vede din orice tab fara sa
    mai stea o banda peste continut, si duce la harta cand il apesi. */
 .rec-chip{
-  display:inline-flex;align-items:center;gap:5px;flex:none;
+  display:inline-flex;align-items:center;gap:5px;flex:0 1 auto;
   padding:2px 8px 2px 6px;border-radius:6px;cursor:pointer;
   background:rgba(255,90,77,.15);border:1px solid rgba(255,90,77,.45);
   color:#FF8B80;font-family:var(--mono);font-size:9.5px;font-weight:700;
   letter-spacing:.06em;
 }
 .rec-chip:active{background:rgba(255,90,77,.3)}
+/* Insigna se poate ingusta si taia cu trei puncte. Fara asta, flex:none o
+   facea sa impinga randul si sa treaca pe sub butonul DISCONNECT. */
+.rec-chip{min-width:0;overflow:hidden}
+#rec-chip-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Cat inregistreaza, cuvantul CONNECTED cedeaza locul cifrelor. */
+body.is-recording #link-text{display:none}
 .rec-chip .rec-dot{width:6px;height:6px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--ink-3);flex:0 0 auto}
 .dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(53,208,127,.16)}
 
 .btn-connect{
+  /* flex:0 0 auto - butonul nu se micsoreaza niciodata, deci nimic din stanga
+     nu poate ajunge pe sub el. Inainte putea fi comprimat si insignele treceau
+     peste text. */
+  flex:0 0 auto;
   min-height:36px;padding:0 16px;
   background:var(--accent);color:#fff;border:0;border-radius:999px;
   font-family:var(--sans);font-size:13px;font-weight:600;letter-spacing:.04em;
@@ -969,7 +979,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
       <div id="map"></div>
 
       <div class="map-stats">
-        <div class="k">Distance</div>
+        <div class="k" id="distance-label">Drawn</div>
         <div class="v" id="distance-display">0.00 km</div>
       </div>
 
@@ -2291,7 +2301,27 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
 
     function updateMapVisuals() {
         mainPolyline.setLatLngs(routePoints);
-        document.getElementById('distance-display').innerText = calculateTotalDistance() + ' km';
+        renderDistance();
+    }
+
+    // BUG REPARAT: cifra arata doar lungimea traseului DESENAT cu degetul. Cat
+    // inregistrai, se desena traseul verde pe harta si scria 0.00 km, ceea ce e
+    // exact informatia pe care o cauti in momentul ala. Acum, cand aparatul
+    // inregistreaza, arata distanta parcursa; altfel, lungimea traseului desenat.
+    function renderDistance() {
+        const el = document.getElementById('distance-display');
+        const lbl = document.getElementById('distance-label');
+        if (!el) return;
+
+        if (typeof activeSession !== 'undefined' && activeSession && activeSession.points.length > 1) {
+            el.innerText = sessionDistanceKm(activeSession.points).toFixed(2) + ' km';
+            if (lbl) lbl.innerText = 'Recorded';
+            el.classList.add('rec');
+            return;
+        }
+        el.innerText = calculateTotalDistance() + ' km';
+        if (lbl) lbl.innerText = 'Drawn';
+        el.classList.remove('rec');
     }
 
     function setMode(newMode) {
@@ -2362,6 +2392,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
             }).addTo(map);
         }
         liveTrack.addLatLng([lat, lon]);
+        renderDistance();
     }
 
     // Un traseu deschis din lista de sesiuni sau descarcat de pe cardul SD.
@@ -2679,6 +2710,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
             points: []
         };
         clearLiveTrack();
+        if (typeof renderDistance === 'function') renderDistance();
         showToast('Recording started', 'success');
         renderRecBanner();
     }
@@ -2698,6 +2730,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         activeSession = null;
         pendingWrites = 0;
         renderRecBanner();
+        if (typeof renderDistance === 'function') renderDistance();
         if (document.getElementById('tab-files').classList.contains('active')) renderSessions();
     }
 
@@ -2728,14 +2761,20 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         if (!chip) return;
         if (!activeSession) {
             if (!guideDemoChip) chip.classList.add('hidden');
+            document.body.classList.remove('is-recording');
             return;
         }
         chip.classList.remove('hidden');
+        // Antetul e ingust. Cat inregistrezi, numarul de puncte conteaza mai
+        // mult decat cuvantul "CONNECTED" - punctul verde spune oricum asta.
+        document.body.classList.add('is-recording');
         const mins = Math.floor((Date.now() - activeSession.startedAt) / 60000);
-        // Numai punctele si minutele: in antet nu incap trei valori, iar
-        // distanta se vede oricum pe harta, la un tap distanta.
+        // In antet nu incap trei valori, iar distanta se vede oricum pe harta la
+        // un tap distanta. Peste o mie de puncte nici doua nu mai incap, asa ca
+        // ramane numarul de puncte: el arata ca inregistrarea chiar avanseaza.
+        const n = activeSession.points.length;
         document.getElementById('rec-chip-text').innerText =
-            activeSession.points.length + 'p · ' + mins + 'm';
+            n >= 1000 ? n + 'p' : (n + 'p · ' + mins + 'm');
     }
 
     // La pornire, o sesiune ramasa deschisa (aplicatia a fost inchisa in timpul
@@ -3405,7 +3444,10 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     // si fisierul ar ajunge corupt fara niciun semn.
     // =====================================================================
 
-    const UPLOAD_CHUNK_BYTES = 120;
+    // Trebuie sa fie EXACT cat SD_UPLOAD_CHUNK_BYTES din glyph_config.h: 168 de
+    // octeti bruti devin 224 base64, plus prefix 233 - incape intr-o singura
+    // scriere BLE la MTU 247 si in sertarul de receptie de 256 al aparatului.
+    const UPLOAD_CHUNK_BYTES = 168;
     let up = null;
 
     function utf8ToBytes(str) { return new TextEncoder().encode(str); }
@@ -3664,8 +3706,9 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
 
         showConfirm('Update firmware',
             'Send <b>' + escapeHtml(f.name) + '</b> (' + Math.round(f.size / 1024) + ' KB) to GLYPH?'
-            + '<br><br>Keep the phone near the device. It restarts when done. '
-            + 'If anything interrupts it, the device simply keeps the firmware it has now.',
+            + '<br><br>This takes <b>several minutes</b>. Keep the phone near the device '
+            + 'and the screen on. It restarts when done. If anything interrupts it, the '
+            + 'device simply keeps the firmware it has now.',
             () => {
                 const r = new FileReader();
                 r.onload = () => startOta(f.name, new Uint8Array(r.result));
@@ -3673,8 +3716,19 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
             });
     }
 
-    function startOta(name, bytes) {
+    function startOta(name, rawBytes) {
         if (ota) { showToast('An update is already running', 'warning'); return; }
+
+        let bytes;
+        try {
+            const r = extractAppImage(rawBytes);
+            bytes = r.bytes;
+            if (r.note) showToast(r.note);
+        } catch (e) {
+            showAlert('Not a usable firmware file', escapeHtml(String(e.message || e)));
+            return;
+        }
+
         ota = { name, bytes, sent: 0, timer: null, t0: Date.now() };
         document.getElementById('ota-bar').classList.remove('hidden');
         document.getElementById('ota-name').innerText = name;
@@ -3703,9 +3757,12 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         const pct = ota.sent * 100 / ota.bytes.length;
         document.getElementById('ota-fill').style.width = pct.toFixed(1) + '%';
         const elapsed = (Date.now() - ota.t0) / 1000;
-        const left = elapsed > 2 ? Math.round(elapsed * (100 / Math.max(pct, 0.1) - 1)) : 0;
+        const left = elapsed > 3 ? Math.round(elapsed * (100 / Math.max(pct, 0.1) - 1)) : 0;
+        const leftTxt = !left ? ''
+            : left > 90 ? ' · ~' + Math.ceil(left / 60) + ' min left'
+                        : ' · ~' + left + 's left';
         document.getElementById('ota-name').innerText =
-            ota.name + ' — ' + pct.toFixed(0) + '%' + (left ? ' · ~' + left + 's left' : '');
+            ota.name + ' — ' + pct.toFixed(0) + '%' + leftTxt;
         armOtaTimeout();
     }
 
@@ -3864,6 +3921,16 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
             return;
         }
 
+        // Marimea din confirmare trebuie sa fie a APLICATIEI care pleaca, nu a
+        // fisierului: dintr-o imagine contopita de 4 MB se trimite ~1,4 MB, si
+        // "4096 KB" ar fi pur si simplu o cifra falsa.
+        let appBytes = bytes;
+        try { appBytes = extractAppImage(bytes).bytes; }
+        catch (e) {
+            showAlert('Not a usable firmware file', escapeHtml(String(e.message || e)));
+            return;
+        }
+
         const cmp = compareVersions(deviceVersion, siteFirmware.version);
         const warn = (cmp === 1)
             ? '<br><br><b>Careful:</b> the device is running a NEWER build than this one. '
@@ -3872,10 +3939,91 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
 
         showConfirm('Update from site',
             'Send version <b>' + escapeHtml(siteFirmware.version) + '</b> ('
-            + Math.round(bytes.length / 1024) + ' KB) to GLYPH?' + warn
-            + '<br><br>Keep the phone near the device. It restarts when done. If anything '
-            + 'interrupts it, the device simply keeps the firmware it has now.',
-            () => startOta('firmware.bin (' + siteFirmware.version + ')', bytes));
+            + Math.round(appBytes.length / 1024) + ' KB) to GLYPH?' + warn
+            + '<br><br>This takes <b>several minutes</b> — a firmware image is about '
+            + '1.4 MB and Bluetooth sends it in small pieces. Keep the phone near the '
+            + 'device and the screen on. It restarts when done. If anything interrupts '
+            + 'it, the device simply keeps the firmware it has now.',
+            () => startOta('firmware ' + siteFirmware.version, bytes));
+    }
+
+    // =====================================================================
+    // IMAGINEA DE FIRMWARE
+    //
+    // "Export Compiled Binary" din Arduino scoate o imagine CONTOPITA de 4 MB:
+    // bootloader la offsetul 0, tabela de partitii la 0x8000, aplicatia la
+    // 0x10000, restul umplutura. Aia e fisierul corect pentru flasher-ul web,
+    // care scrie de la offsetul 0 - dar e gresit pentru actualizarea prin
+    // Bluetooth, fiindca acolo se scrie DOAR aplicatia, intr-o partitie de
+    // ~1,3 MB. De aceea aparatul raspundea "NO ROOM": i se cereau 4 MB.
+    //
+    // In loc sa-ti cerem un al doilea fisier, decupam aplicatia din imaginea
+    // contopita. Formatul e documentat si simplu: antet de 24 de octeti, apoi
+    // segmente cu lungimea scrisa in fata fiecaruia, apoi umplutura pana la un
+    // multiplu de 16 si un octet de suma de control.
+    // =====================================================================
+
+    const ESP_MAGIC = 0xE9;
+    const ESP_APP_OFFSET = 0x10000;
+
+    // Lungimea reala a imaginii care incepe la `off`, sau null daca nu e una.
+    function espImageLength(b, off) {
+        if (off + 24 > b.length || b[off] !== ESP_MAGIC) return null;
+        const segs = b[off + 1];
+        const hashAppended = b[off + 22];
+        if (segs === 0 || segs > 16) return null;
+
+        let p = off + 24;
+        for (let i = 0; i < segs; i++) {
+            if (p + 8 > b.length) return null;
+            const len = b[p + 4] | (b[p + 5] << 8) | (b[p + 6] << 16) | (b[p + 7] << 24);
+            if (len < 0 || len > b.length) return null;
+            p += 8 + len;
+        }
+        // Umplutura pana cand (lungime + 1) e multiplu de 16, plus octetul de suma.
+        p += (15 - ((p - off) % 16)) + 1;
+        if (hashAppended) p += 32;
+        return p > b.length ? null : p - off;
+    }
+
+    // Verificarea proprie a formatului: XOR peste datele tuturor segmentelor,
+    // pornind de la 0xEF, trebuie sa dea octetul de suma. Daca se potriveste,
+    // limitele au fost gasite corect - nu am taiat la intamplare.
+    function espChecksumOk(b, off) {
+        const segs = b[off + 1];
+        let p = off + 24, chk = 0xEF;
+        for (let i = 0; i < segs; i++) {
+            const len = b[p + 4] | (b[p + 5] << 8) | (b[p + 6] << 16) | (b[p + 7] << 24);
+            for (let j = 0; j < len; j++) chk ^= b[p + 8 + j];
+            p += 8 + len;
+        }
+        const pos = p + (15 - ((p - off) % 16));
+        return pos < b.length && b[pos] === chk;
+    }
+
+    // Intoarce { bytes, note } sau arunca o eroare explicata pe intelesul omului.
+    function extractAppImage(b) {
+        if (b.length < 1024 || b[0] !== ESP_MAGIC) {
+            throw new Error('That file does not look like an ESP32 firmware image.');
+        }
+
+        // Aplicatia la offsetul standard inseamna imagine contopita.
+        const merged = b.length > ESP_APP_OFFSET && b[ESP_APP_OFFSET] === ESP_MAGIC;
+        const off = merged ? ESP_APP_OFFSET : 0;
+
+        const len = espImageLength(b, off);
+        if (len === null) throw new Error('The firmware image is damaged or truncated.');
+        if (!espChecksumOk(b, off)) {
+            throw new Error('The firmware image failed its own checksum. It may be corrupted.');
+        }
+
+        return {
+            bytes: b.slice(off, off + len),
+            note: merged
+                ? 'Extracted the application from the 4 MB combined image (' 
+                  + Math.round(len / 1024) + ' KB).'
+                : ''
+        };
     }
 
     // =====================================================================
