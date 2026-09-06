@@ -79,7 +79,10 @@ header{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
   position:sticky;top:0;z-index:40;flex:0 0 auto;
 }
-.brand{display:flex;align-items:center;gap:10px;min-width:0}
+/* flex:1 + overflow:hidden - fara ele numele si insignele se intindeau peste
+   butonul de ajutor, exact cum se vedea pe telefon. */
+.brand{display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 auto;overflow:hidden}
+.brand > div{min-width:0;overflow:hidden}
 /* Logo-ul GLYPH, fisier SVG separat: ramane clar la orice marime si nu
    umfla pagina asa cum o facea varianta lipita in cod (268 KB). */
 .brand img{width:32px;height:32px;display:block;flex:none}
@@ -87,10 +90,23 @@ header{
   font-weight:700;font-size:16px;letter-spacing:.12em;
 }
 .link-state{
-  display:flex;align-items:center;gap:6px;
+  display:flex;align-items:center;gap:6px;min-width:0;
   font-family:var(--mono);font-size:10px;letter-spacing:.08em;
   color:var(--ink-3);text-transform:uppercase;
 }
+#link-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+
+/* Indicatorul de inregistrare, mutat in antet: se vede din orice tab fara sa
+   mai stea o banda peste continut, si duce la harta cand il apesi. */
+.rec-chip{
+  display:inline-flex;align-items:center;gap:5px;flex:none;
+  padding:2px 8px 2px 6px;border-radius:6px;cursor:pointer;
+  background:rgba(255,90,77,.15);border:1px solid rgba(255,90,77,.45);
+  color:#FF8B80;font-family:var(--mono);font-size:9.5px;font-weight:700;
+  letter-spacing:.06em;
+}
+.rec-chip:active{background:rgba(255,90,77,.3)}
+.rec-chip .rec-dot{width:6px;height:6px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--ink-3);flex:0 0 auto}
 .dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(53,208,127,.16)}
 
@@ -445,41 +461,12 @@ header{
 .sec-badge svg{width:9px;height:9px}
 .sec-badge.on{background:rgba(53,208,127,.14);color:var(--ok);border-color:rgba(53,208,127,.4)}
 
-/* ---------- banda de inregistrare, vizibila din orice tab ---------- */
-.rec-banner{
-  position:fixed;left:12px;right:12px;
-  bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 10px);
-  z-index:700;display:flex;align-items:center;gap:11px;
-  padding:10px 12px;border-radius:13px;
-  transition:transform .2s ease, opacity .2s ease;
-  background:rgba(21,23,26,.96);border:1px solid rgba(255,90,77,.45);
-  box-shadow:0 8px 26px rgba(0,0,0,.55);
-  backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);
-}
+/* Punctul rosu care pulseaza, folosit in insigna de inregistrare din antet. */
 .rec-dot{
   width:10px;height:10px;border-radius:50%;background:var(--danger);flex:none;
   animation:recPulse 1.6s ease-in-out infinite;
 }
 @keyframes recPulse{0%,100%{opacity:1}50%{opacity:.25}}
-.rec-title{font-size:13px;font-weight:600;color:var(--ink)}
-.rec-stats{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:1px}
-
-/* Cat timp banda e afisata, continutul primeste loc sub el: altfel acopera
-   ultimul rand din lista sau ultima scurtatura, exact cum se intampla. */
-body.is-recording .tab-pane:not(.flush){padding-bottom:96px}
-
-/* Strans: ramane un punct rosu si distanta, lipit in dreapta. Se vede ca
-   inregistrezi fara sa stea o banda peste toata latimea ecranului. */
-/* Strans, se aseaza in STANGA: dreapta jos e ocupata de zoom si de
-   atribuirea Leaflet, si se suprapuneau pe tab-ul hartii. */
-.rec-banner.mini{right:auto;width:auto;padding:8px 10px;gap:8px}
-.rec-banner.mini .rec-title,.rec-banner.mini .rec-map{display:none}
-.rec-banner.mini .rec-stats{margin-top:0;font-size:11px;color:var(--ink-2)}
-body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
-.rec-x{
-  flex:none;width:30px;height:30px;border-radius:8px;border:1px solid var(--line);
-  background:var(--surface-3);color:var(--ink-3);font-size:15px;line-height:1;cursor:pointer;
-}
 
 /* ---------- liste de fisiere si sesiuni ---------- */
 .list-body{padding:6px 0}
@@ -564,28 +551,43 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
 }
 .chip:active{background:var(--accent);border-color:var(--accent);color:#fff}
 
-/* ---------- ghidul de la prima pornire ---------- */
-#guide{
-  position:fixed;inset:0;z-index:1200;display:none;
-  align-items:center;justify-content:center;padding:22px;
-  background:rgba(6,7,9,.86);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+/* ---------- ghidul: aplicatia reala, cu reflector pe butonul explicat ------
+   Fara ceata (backdrop-filter) peste tot: ar face ilizibil chiar butonul
+   despre care vorbim. Intunecarea vine din dreptunghiul SVG, care are o gaura
+   decupata exact peste element - deci elementul evidentiat ramane clar. */
+#coach{position:fixed;inset:0;z-index:1200;display:none}
+#coach.show{display:block}
+#coach-svg{position:absolute;inset:0;width:100%;height:100%}
+/* Numai fisa de text prinde apasarile; restul ecranului nu, ca sa nu apesi
+   din greseala butonul evidentiat in timp ce citesti despre el. */
+#coach-svg{pointer-events:auto}
+.coach-card{
+  position:absolute;left:14px;right:14px;
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-lg);padding:16px 17px 13px;
+  box-shadow:0 16px 44px rgba(0,0,0,.7);
+  transition:top .28s cubic-bezier(.4,0,.2,1);
 }
-#guide.show{display:flex}
-.guide-card{
-  width:100%;max-width:380px;background:var(--surface);
-  border:1px solid var(--line);border-radius:var(--r-lg);padding:24px 22px 18px;
+.coach-step{
+  font-family:var(--mono);font-size:10px;letter-spacing:.1em;
+  color:var(--accent);font-weight:700;margin-bottom:6px;
 }
-.guide-title{font-size:20px;font-weight:700;color:var(--ink);margin-bottom:11px}
-.guide-body{font-size:14px;line-height:1.65;color:var(--ink-2)}
-.guide-body b{color:var(--ink);font-weight:600}
-.guide-dots{display:flex;gap:6px;justify-content:center;margin:20px 0 16px}
-.guide-dots span{width:6px;height:6px;border-radius:50%;background:var(--surface-3)}
-.guide-dots span.on{background:var(--accent);width:18px;border-radius:3px}
-.guide-actions{display:flex;gap:9px}
-.guide-actions .btn{flex:1}
-.guide-skip{
-  display:block;margin:12px auto 0;background:none;border:0;cursor:pointer;
-  color:var(--ink-3);font-family:var(--sans);font-size:12.5px;padding:6px 10px;
+.coach-title{font-size:17px;font-weight:700;color:var(--ink);margin-bottom:6px}
+.coach-body{font-size:13.5px;line-height:1.6;color:var(--ink-2)}
+.coach-body b{color:var(--ink);font-weight:600}
+.coach-actions{display:flex;align-items:center;gap:9px;margin-top:15px}
+.coach-actions .btn{flex:1;min-height:40px}
+.coach-skip{
+  flex:none;background:none;border:0;cursor:pointer;padding:8px 4px;
+  color:var(--ink-3);font-family:var(--sans);font-size:12.5px;
+}
+/* Inelul respira usor, ca ochiul sa mearga acolo fara sa fie o animatie
+   care distrage la fiecare pas. */
+#coach-ring{animation:coachRing 2.1s ease-in-out infinite}
+@keyframes coachRing{0%,100%{opacity:1}50%{opacity:.45}}
+@media (prefers-reduced-motion:reduce){
+  #coach-ring{animation:none}
+  .coach-card{transition:none}
 }
 
 /* ---------- notificari scurte ---------- */
@@ -801,10 +803,13 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
     <div>
       <div class="brand-name">GLYPH</div>
       <div class="link-state"><span class="dot" id="status-dot"></span><span id="link-text">Disconnected</span>
-        <span class="sec-badge" id="sec-badge">PUBLIC</span></div>
+        <span class="sec-badge" id="sec-badge">PUBLIC</span>
+        <button class="rec-chip hidden" id="rec-chip" onclick="switchTab('tab-map')"
+                aria-label="Recording - open the map"><span class="rec-dot"></span><span id="rec-chip-text">REC</span></button>
+      </div>
     </div>
   </div>
-  <button class="icon-btn header-help" onclick="openGuide()" aria-label="How this works">
+  <button class="icon-btn header-help hidden" id="btn-help" onclick="openGuide()" aria-label="How this works">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
       <circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a2.8 2.8 0 1 1 3.6 2.7c-.6.2-.8.7-.8 1.3v.3"/><path d="M12 17h.01"/>
     </svg>
@@ -879,10 +884,6 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-head">This trip</div>
-      <div class="rows" id="trip-body"></div>
-    </div>
   </div>
 
   <!-- ---------------- MESAJE ---------------- -->
@@ -1014,6 +1015,23 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
         </button>
         <input type="file" id="kml-upload" accept=".kml" class="hidden" onchange="handleKMLUpload(event)">
       </div>
+
+      <!-- Ruta desenata aici ajunge pe cardul aparatului si se deschide
+           singura pe ecranul lui. -->
+      <button class="btn primary wide" id="btn-send-route" onclick="sendRouteToDevice()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 19V5M5 12l7-7 7 7"/><path d="M4 21h16"/>
+        </svg>
+        Send route to GLYPH
+      </button>
+
+      <div class="dl-bar hidden" id="up-bar" style="padding-left:0;padding-right:0">
+        <div class="dl-top">
+          <span id="up-name">route.kml</span>
+          <button class="mini danger" onclick="cancelUpload()">STOP</button>
+        </div>
+        <div class="dl-track"><div class="dl-fill" id="up-fill"></div></div>
+      </div>
     </div>
   </div>
 
@@ -1068,6 +1086,22 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>
           </span>
           <span>Shut down device<span class="sub">A + C &middot; deep sleep</span></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Reluarea ghidului sta aici, nu in antet: antetul e ingust si semnul de
+         intrebare se suprapunea peste insigna de mod. -->
+    <div class="card">
+      <div class="card-head">Help</div>
+      <div class="action-list">
+        <button class="action" onclick="openGuide()">
+          <span class="ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a2.8 2.8 0 1 1 3.6 2.7c-.6.2-.8.7-.8 1.3v.3"/><path d="M12 17h.01"/>
+            </svg>
+          </span>
+          <span>Show me around again<span class="sub">walks through every button</span></span>
         </button>
       </div>
     </div>
@@ -1145,29 +1179,38 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
   </div>
 </div>
 
-<!-- Se vede din orice tab cat timp GLYPH inregistreaza. -->
-<div id="rec-banner" class="rec-banner hidden">
-  <span class="rec-dot"></span>
-  <div style="flex:1;min-width:0" onclick="toggleRecBanner()">
-    <div class="rec-title">Recording track</div>
-    <div class="rec-stats" id="rec-stats">0 pts</div>
-  </div>
-  <button class="mini rec-map" onclick="switchTab('tab-map')">MAP</button>
-  <button class="rec-x" id="rec-x" onclick="toggleRecBanner()" aria-label="Shrink">&minus;</button>
-</div>
+<!-- Ghidul: nu o fereastra peste aplicatie, ci aplicatia insasi cu un butoi
+     de lumina pe butonul despre care se vorbeste. Gaura din intuneric se
+     decupeaza cu o masca SVG, iar sageata pleaca din fisa de text catre buton.
+     Elementul evidentiat NU e intunecat - el e subiectul. -->
+<div id="coach">
+  <svg id="coach-svg" preserveAspectRatio="none">
+    <defs>
+      <mask id="coach-mask">
+        <rect id="coach-dim" x="0" y="0" width="100%" height="100%" fill="#fff"/>
+        <rect id="coach-hole" x="0" y="0" width="0" height="0" rx="14" fill="#000"/>
+      </mask>
+      <marker id="coach-arrow" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#2E8DFF"/>
+      </marker>
+    </defs>
+    <rect x="0" y="0" width="100%" height="100%" fill="rgba(6,7,9,.82)" mask="url(#coach-mask)"/>
+    <rect id="coach-ring" x="0" y="0" width="0" height="0" rx="14"
+          fill="none" stroke="#2E8DFF" stroke-width="2.5"/>
+    <path id="coach-line" d="" fill="none" stroke="#2E8DFF" stroke-width="2.5"
+          stroke-linecap="round" marker-end="url(#coach-arrow)"/>
+  </svg>
 
-
-<!-- Ghid scurt, o singura data la prima pornire; se poate relua din antet. -->
-<div id="guide">
-  <div class="guide-card">
-    <div class="guide-title" id="guide-title"></div>
-    <div class="guide-body" id="guide-body"></div>
-    <div class="guide-dots" id="guide-dots"></div>
-    <div class="guide-actions">
-      <button class="btn" id="guide-back" onclick="guideBack()">BACK</button>
-      <button class="btn primary" id="guide-next" onclick="guideNext()">NEXT</button>
+  <div class="coach-card" id="coach-card">
+    <div class="coach-step" id="coach-step"></div>
+    <div class="coach-title" id="coach-title"></div>
+    <div class="coach-body" id="coach-body"></div>
+    <div class="coach-actions">
+      <button class="coach-skip" onclick="closeGuide()">Skip</button>
+      <button class="btn" id="coach-back" onclick="guideBack()">BACK</button>
+      <button class="btn primary" id="coach-next" onclick="guideNext()">NEXT</button>
     </div>
-    <button class="guide-skip" onclick="closeGuide()">Skip</button>
   </div>
 </div>
 
@@ -1623,6 +1666,12 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
             return;
         }
         if (val === "SYS_FILE_END") { finishDownload(); return; }
+
+        // ---- incarcarea unei rute pe cardul aparatului ----
+        if (val === "SYS_PUT_READY")        { sendNextUploadChunk(); return; }
+        if (val.startsWith("SYS_PUT_ACK:")) { sendNextUploadChunk(); return; }
+        if (val.startsWith("SYS_PUT_DONE:")) { finishUploadUI(val.substring(13)); return; }
+        if (val.startsWith("SYS_PUT_ERR:"))  { failUpload(val.substring(12)); return; }
         if (val.startsWith("SYS_FILE_ERR:")) {
             dl = null;
             document.getElementById('dl-bar').classList.add('hidden');
@@ -2529,37 +2578,23 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
         }
     }
 
-    // Banda se poate strange la un punct rosu si distanta, si tine minte alegerea:
-    // e utila, dar nu are de ce sa stea peste continut la fiecare deschidere.
-    let recMini = false;
-    try { recMini = localStorage.getItem('glyph_rec_mini') === '1'; } catch (e) {}
-
-    function toggleRecBanner() {
-        recMini = !recMini;
-        try { localStorage.setItem('glyph_rec_mini', recMini ? '1' : '0'); } catch (e) {}
-        renderRecBanner();
-    }
-
+    // Starea de inregistrare sta in antet, langa insigna de mod. Inainte era o
+    // banda peste ecran, care acoperea ultimul rand din liste indiferent cat
+    // spatiu i se rezerva dedesubt. In antet nu acopera nimic, se vede din
+    // orice tab, si dusa la harta cand o apesi.
     function renderRecBanner() {
-        const el = document.getElementById('rec-banner');
-        if (!el) return;
+        const chip = document.getElementById('rec-chip');
+        if (!chip) return;
         if (!activeSession) {
-            el.classList.add('hidden');
-            document.body.classList.remove('is-recording', 'rec-mini');
+            if (!guideDemoChip) chip.classList.add('hidden');
             return;
         }
-        el.classList.remove('hidden');
-        el.classList.toggle('mini', recMini);
-        // Clasele de pe body rezerva loc sub continut, ca banda sa nu acopere
-        // ultimul rand din lista sau ultima scurtatura.
-        document.body.classList.add('is-recording');
-        document.body.classList.toggle('rec-mini', recMini);
-        const x = document.getElementById('rec-x');
-        if (x) x.innerHTML = recMini ? '&plus;' : '&minus;';
+        chip.classList.remove('hidden');
         const mins = Math.floor((Date.now() - activeSession.startedAt) / 60000);
-        document.getElementById('rec-stats').innerText =
-            activeSession.points.length + ' pts · '
-            + sessionDistanceKm(activeSession.points).toFixed(2) + ' km · ' + mins + ' min';
+        // Numai punctele si minutele: in antet nu incap trei valori, iar
+        // distanta se vede oricum pe harta, la un tap distanta.
+        document.getElementById('rec-chip-text').innerText =
+            activeSession.points.length + 'p · ' + mins + 'm';
     }
 
     // La pornire, o sesiune ramasa deschisa (aplicatia a fost inchisa in timpul
@@ -2706,6 +2741,17 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
             box.innerHTML = '<div class="empty">Card is empty.</div>';
             return;
         }
+        // Cel mai recent primul. Aparatul le da in ordinea de pe card, care e
+        // ordinea in care au fost scrise pe FAT - adica aproape aleatoare dupa
+        // cateva stergeri. Data e in chiar numele fisierului, asa ca o scoatem
+        // de acolo; ce nu are data recunoscuta cade la coada, in ordine
+        // alfabetica, in loc sa se amestece printre cele datate.
+        sdFiles.sort((a, b) => {
+            const ka = sdSortKey(a.name), kb = sdSortKey(b.name);
+            if (ka !== kb) return kb - ka;
+            return a.name.localeCompare(b.name);
+        });
+
         box.innerHTML = sdFiles.map(f => {
             const kb = (f.size / 1024).toFixed(1);
             const isKml = /\.kml$/i.test(f.name);
@@ -2718,6 +2764,18 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
                 <button class="mini" onclick="pullFile('${escapeHtml(f.name)}','save')">SAVE</button>
               </div>`;
         }).join('');
+    }
+
+    // Numele scrise de aparat: route_DD-MM-YYYY_HH-MM.kml, sys_DD_MM_YYYY.csv,
+    // pub_DDMMYYYY.txt. Intoarcem un numar care creste cu timpul, sau 0.
+    function sdSortKey(name) {
+        let m = name.match(/(\d{2})-(\d{2})-(\d{4})_(\d{2})-(\d{2})/);
+        if (m) return (+m[3]) * 1e8 + (+m[2]) * 1e6 + (+m[1]) * 1e4 + (+m[4]) * 100 + (+m[5]);
+        m = name.match(/(\d{2})_(\d{2})_(\d{4})/);
+        if (m) return (+m[3]) * 1e8 + (+m[2]) * 1e6 + (+m[1]) * 1e4;
+        m = name.match(/(\d{2})(\d{2})(\d{4})/);
+        if (m) return (+m[3]) * 1e8 + (+m[2]) * 1e6 + (+m[1]) * 1e4;
+        return 0;
     }
 
     function pullFile(name, action) {
@@ -2967,9 +3025,11 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
             trip.tMin = trip.tMin === null ? value : Math.min(trip.tMin, value);
             trip.tMax = trip.tMax === null ? value : Math.max(trip.tMax, value);
         }
-        renderTrip();
     }
 
+    // Cardul de bilant a fost scos din Status la cererea utilizatorului. Numarul
+    // de mesaje si intervalul de temperatura raman colectate: ajung in jurnalul
+    // CSV, care e locul unde chiar sunt de folos.
     function renderTrip() {
         const el = document.getElementById('trip-body');
         if (!el) return;
@@ -2991,47 +3051,157 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
     // GHIDUL DE LA PRIMA PORNIRE
     // =====================================================================
 
-    const GUIDE_KEY = 'glyph_guide_seen_v1';
+    // Fiecare pas arata catre un buton adevarat din aplicatie. `sel` il gaseste,
+    // `tab` spune pe ce ecran trebuie sa fim ca sa fie vizibil, `pad` largeste
+    // gaura de lumina cand elementul e mic, `round` o face cerc.
+    const GUIDE_KEY = 'glyph_guide_seen_v2';
     const GUIDE = [
-        { t: 'Five tabs',
-          b: '<b>Status</b> — what the device reports right now.<br>'
-           + '<b>Comms</b> — messages over LoRa, public or encrypted.<br>'
-           + '<b>Routes</b> — the map, following GLYPH.<br>'
-           + '<b>Files</b> — recorded tracks and the memory card.<br>'
-           + '<b>Control</b> — the device, driven from here.' },
-        { t: 'The map follows GLYPH',
-          b: 'Not your phone. The green dot is the device; the map keeps up with it '
-           + 'until you drag the map, and the crosshair button resumes.<br><br>'
-           + 'The pencil button opens the drawing tools. Long-press anywhere to '
-           + 'broadcast those coordinates to your team.' },
-        { t: 'Press REC on the device',
-          b: 'The track draws itself on the phone while you walk, and is saved here '
-           + 'even if you close the app. Find it later under <b>Files</b>, open it on '
-           + 'the map or export it as KML.' },
-        { t: 'Button combinations',
-          b: '<b>A + B</b> — start or stop recording<br>'
-           + '<b>B + C</b> — broadcast SOS (hold 10 seconds)<br>'
-           + '<b>A + C</b> — shut the device down<br><br>'
-           + 'All three are also buttons under <b>Control</b>, and holding A, B or C '
-           + 'there sends a long press.' }
+        { sel: '#btn-connect', t: 'Start here',
+          b: 'Pairs the phone with GLYPH over Bluetooth. Everything else in the app '
+           + 'stays greyed out until this is done.' },
+        { sel: '#sec-badge', pad: 6, t: 'Public or encrypted',
+          b: 'Shows <b>PUBLIC</b> when anyone on the frequency can read you, or a lock '
+           + 'with your team name when messages go out encrypted. Visible from every '
+           + 'screen, so you always know which one you are on.' },
+        { sel: '#rec-chip', pad: 6, t: 'Recording',
+          b: 'This appears only while GLYPH is recording, and counts the points as they '
+           + 'come in. <b>Tap it</b> to jump straight to the map and watch the track draw.' },
+        { sel: '.nav-btn:nth-child(1)', t: 'Status',
+          b: 'What the device reports right now: battery with an estimate of hours left, '
+           + 'time, position, satellites, temperature — and whether any part of the '
+           + 'hardware has stopped answering.' },
+        { sel: '.nav-btn:nth-child(2)', t: 'Comms', tab: 'tab-comms',
+          b: 'Messages over LoRa. A sent message says <b>sent on air</b> only once the '
+           + 'device confirms the radio transmission — not merely that your phone '
+           + 'handed it over.' },
+        { sel: '.quick-bar', tab: 'tab-comms', t: 'One-tap messages',
+          b: 'For when typing is not an option. <b>Send position</b> broadcasts the '
+           + 'coordinates GLYPH is reporting right now.' },
+        { sel: '.nav-btn:nth-child(3)', t: 'Routes', tab: 'tab-map',
+          b: 'The map. The green dot is <b>GLYPH</b>, never your phone — the phone can be '
+           + 'forty kilometres away in a car.' },
+        { sel: '#btn-follow', round: true, tab: 'tab-map', t: 'Follow the device',
+          b: 'The map keeps up with GLYPH on its own. Drag the map and it stops following, '
+           + 'so you can look elsewhere; this button starts it again and lights up green '
+           + 'while it is following.' },
+        { sel: '#btn-edit', round: true, tab: 'tab-map', t: 'Drawing tools',
+          b: 'Opens the panel for drawing a route, searching an address, and saving or '
+           + 'opening KML files. Closed by default so the map gets the whole screen.<br><br>'
+           + '<b>Long-press the map</b> to broadcast that spot to your team.' },
+        { sel: '.nav-btn:nth-child(4)', t: 'Files', tab: 'tab-files',
+          b: 'Every track you recorded, kept on the phone even after closing the app — '
+           + 'open it on the map or export it as KML. Below it, the memory card inside '
+           + 'GLYPH, readable straight from here.' },
+        { sel: '.nav-btn:nth-child(5)', t: 'Control', tab: 'tab-control',
+          b: 'The device, driven from your phone: team channel, power mode, and the '
+           + 'three buttons.' },
+        { sel: '.btn-grid', tab: 'tab-control', t: 'A, B and C',
+          b: 'The same three buttons that are on the device. A short tap sends a press; '
+           + '<b>hold for about a second</b> and it sends a long press instead — the phone '
+           + 'vibrates when it switches.' },
+        { sel: '.action-list', tab: 'tab-control', t: 'The combinations',
+          b: '<b>A + B</b> starts and stops recording.<br>'
+           + '<b>B + C</b> broadcasts SOS — hold ten seconds.<br>'
+           + '<b>A + C</b> shuts the device down.<br><br>'
+           + 'Each one is also a button here, and the two red ones ask for confirmation '
+           + 'before they fire.' }
     ];
+
     let guideStep = 0;
+    let guideDemoChip = false;
+
+    function coachEls() {
+        return {
+            wrap:  document.getElementById('coach'),
+            hole:  document.getElementById('coach-hole'),
+            ring:  document.getElementById('coach-ring'),
+            line:  document.getElementById('coach-line'),
+            card:  document.getElementById('coach-card')
+        };
+    }
 
     function renderGuide() {
         const g = GUIDE[guideStep];
-        document.getElementById('guide-title').innerText = g.t;
-        document.getElementById('guide-body').innerHTML = g.b;
-        document.getElementById('guide-dots').innerHTML =
-            GUIDE.map((_, i) => '<span class="' + (i === guideStep ? 'on' : '') + '"></span>').join('');
-        document.getElementById('guide-next').innerText =
-            guideStep === GUIDE.length - 1 ? 'START' : 'NEXT';
-        document.getElementById('guide-back').style.visibility = guideStep ? 'visible' : 'hidden';
+        const el = coachEls();
+
+        document.getElementById('coach-step').innerText =
+            'STEP ' + (guideStep + 1) + ' / ' + GUIDE.length;
+        document.getElementById('coach-title').innerText = g.t;
+        document.getElementById('coach-body').innerHTML = g.b;
+        document.getElementById('coach-next').innerText =
+            guideStep === GUIDE.length - 1 ? 'DONE' : 'NEXT';
+        document.getElementById('coach-back').style.visibility = guideStep ? 'visible' : 'hidden';
+
+        if (g.tab) switchTab(g.tab);
+
+        // Insigna de inregistrare exista doar cat inregistrezi. Ca sa poata fi
+        // aratata, o afisam pe durata pasului si o ascundem la loc dupa.
+        const chip = document.getElementById('rec-chip');
+        if (g.sel === '#rec-chip' && chip.classList.contains('hidden')) {
+            chip.classList.remove('hidden');
+            guideDemoChip = true;
+        } else if (guideDemoChip && g.sel !== '#rec-chip') {
+            if (!activeSession) chip.classList.add('hidden');
+            guideDemoChip = false;
+        }
+
+        // Schimbarea de tab si afisarea insignei muta lucrurile: masuram dupa
+        // ce browserul a asezat totul, nu inainte.
+        requestAnimationFrame(() => requestAnimationFrame(() => positionCoach(g, el)));
+    }
+
+    function positionCoach(g, el) {
+        const target = document.querySelector(g.sel);
+        if (!target) { el.hole.setAttribute('width', 0); el.line.setAttribute('d', ''); return; }
+
+        const r = target.getBoundingClientRect();
+        const pad = g.pad != null ? g.pad : 8;
+        let x = r.left - pad, y = r.top - pad, w = r.width + pad * 2, h = r.height + pad * 2;
+        const rad = g.round ? Math.max(w, h) / 2 : 14;
+        if (g.round) {
+            // Cerc: latura mare pentru amandoua, centrat pe element.
+            const side = Math.max(w, h);
+            x = r.left + r.width / 2 - side / 2;
+            y = r.top + r.height / 2 - side / 2;
+            w = h = side;
+        }
+
+        [el.hole, el.ring].forEach(n => {
+            n.setAttribute('x', x); n.setAttribute('y', y);
+            n.setAttribute('width', w); n.setAttribute('height', h);
+            n.setAttribute('rx', rad);
+        });
+
+        // Fisa se aseaza in jumatatea opusa elementului, ca sa nu-l acopere.
+        const vh = window.innerHeight;
+        const below = y + h < vh * 0.45;
+        el.card.style.top = 'auto'; el.card.style.bottom = 'auto';
+        const cardH = el.card.offsetHeight || 200;
+        // 58px de spatiu intre fisa si element: sub atat, sageata iese un carlig
+        // scurt in loc de o sageata care chiar arata directia.
+        const GAP = 58;
+        el.card.style.top = (below ? Math.min(y + h + GAP, vh - cardH - 14)
+                                   : Math.max(y - cardH - GAP, 14)) + 'px';
+
+        // Sageata: din marginea fisei catre element, cu o mica curba ca sa nu
+        // fie o linie dreapta care pare o eroare de desen.
+        const cr = el.card.getBoundingClientRect();
+        const tx = x + w / 2;
+        const ty = below ? y + h + 6 : y - 6;
+        const sx = Math.max(cr.left + 26, Math.min(tx, cr.right - 26));
+        const sy = below ? cr.top - 8 : cr.bottom + 8;
+        // Curbura creste cu departarea pe orizontala, ca sageata sa arate la fel
+        // de bine si cand elementul e fix sub fisa, si cand e intr-un colt.
+        const bow = Math.max(18, Math.min(46, Math.abs(tx - sx) * 0.45));
+        const mx = (sx + tx) / 2 + (tx > sx ? bow : -bow);
+        const my = (sy + ty) / 2;
+        el.line.setAttribute('d', 'M' + sx + ' ' + sy + ' Q' + mx + ' ' + my + ' ' + tx + ' ' + ty);
     }
 
     function openGuide() {
         guideStep = 0;
+        coachEls().wrap.classList.add('show');
         renderGuide();
-        document.getElementById('guide').classList.add('show');
     }
 
     function guideNext() {
@@ -3042,16 +3212,35 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
     function guideBack() { if (guideStep) { guideStep--; renderGuide(); } }
 
     function closeGuide() {
-        document.getElementById('guide').classList.remove('show');
+        coachEls().wrap.classList.remove('show');
+        const chip = document.getElementById('rec-chip');
+        if (guideDemoChip && !activeSession) chip.classList.add('hidden');
+        guideDemoChip = false;
         try { localStorage.setItem(GUIDE_KEY, '1'); } catch (e) {}
+        // Semnul de intrebare dispare dupa ce ghidul a fost parcurs. Reluarea
+        // ramane disponibila din Control, unde nu incurca antetul.
+        const help = document.getElementById('btn-help');
+        if (help) help.classList.add('hidden');
     }
+
+    // Rotirea telefonului sau tastatura care se deschide muta elementul de sub
+    // reflector; fara asta gaura ar ramane peste un loc gol.
+    window.addEventListener('resize', () => {
+        if (coachEls().wrap.classList.contains('show')) renderGuide();
+    });
 
     function maybeShowGuide() {
         let seen = false;
         try { seen = localStorage.getItem(GUIDE_KEY) === '1'; } catch (e) {}
+
+        // Semnul de intrebare din antet exista doar cat ghidul n-a fost parcurs.
+        // Dupa aceea antetul ramane curat, iar reluarea se face din Control.
+        const help = document.getElementById('btn-help');
+        if (help) help.classList.toggle('hidden', seen);
         if (seen) return;
-        // Cat timp ecranul de blocare e sus, ghidul ar sta in spatele lui si
-        // s-ar "consuma" fara ca cineva sa-l vada. Asteptam deblocarea.
+
+        // Cat timp ecranul de blocare e sus, ghidul ar arata catre butoane
+        // ascunse in spatele lui. Asteptam deblocarea.
         const overlay = document.getElementById('glyph-security-overlay');
         const tick = () => {
             // offsetParent e null si pentru un element position:fixed VIZIBIL,
@@ -3075,12 +3264,104 @@ body.is-recording.rec-mini .tab-pane:not(.flush){padding-bottom:78px}
         recoverSessions().then(renderSessions).catch(() => {});
         // Cronometrul din banda de inregistrare: minutele trec si fara pozitii noi.
         setInterval(renderRecBanner, 30000);
-        setInterval(renderTrip, 60000);
         renderQuickBar();
-        renderTrip();
         restoreChat().catch(() => {});
         maybeShowGuide();
     })();
+
+    // =====================================================================
+    // TRIMITEREA UNEI RUTE CATRE CARDUL GLYPH
+    //
+    // Bucata pleaca, aparatul confirma, pleaca urmatoarea. Fara asta,
+    // receptia lui - care are un singur sertar - ar pierde bucati in rafala
+    // si fisierul ar ajunge corupt fara niciun semn.
+    // =====================================================================
+
+    const UPLOAD_CHUNK_BYTES = 120;
+    let up = null;
+
+    function utf8ToBytes(str) { return new TextEncoder().encode(str); }
+
+    function bytesToB64(bytes) {
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin);
+    }
+
+    function sendRouteToDevice() {
+        if (!isConnected) { showToast('Connect to GLYPH first', 'warning'); return; }
+        if (up) { showToast('An upload is already running', 'warning'); return; }
+
+        const kml = getKMLString();
+        if (!kml) { showToast('Draw at least two points first', 'warning'); return; }
+
+        let name = (document.getElementById('filename').value || '').trim() || 'My_Route';
+        name = name.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 40);
+        if (!/\.kml$/i.test(name)) name += '.kml';
+
+        const bytes = utf8ToBytes(kml);
+        up = { name, bytes, sent: 0, timer: null };
+
+        document.getElementById('up-bar').classList.remove('hidden');
+        document.getElementById('up-name').innerText = name;
+        document.getElementById('up-fill').style.width = '0%';
+
+        sendCmd('CMD_PUT:' + name + '|' + bytes.length);
+        armUploadTimeout();
+    }
+
+    // Daca aparatul nu raspunde, nu ramanem agatati la nesfarsit cu o bara de
+    // progres inghetata: renuntam si spunem de ce.
+    function armUploadTimeout() {
+        if (!up) return;
+        clearTimeout(up.timer);
+        up.timer = setTimeout(() => {
+            if (!up) return;
+            sendCmd('CMD_PUTABORT');
+            failUpload('no answer from the device');
+        }, 9000);
+    }
+
+    function sendNextUploadChunk() {
+        if (!up) return;
+        if (up.sent >= up.bytes.length) {
+            sendCmd('CMD_PUTEND');
+            armUploadTimeout();
+            return;
+        }
+        const slice = up.bytes.slice(up.sent, up.sent + UPLOAD_CHUNK_BYTES);
+        up.sent += slice.length;
+        sendCmd('CMD_PUTD:' + bytesToB64(slice));
+        document.getElementById('up-fill').style.width =
+            Math.round(up.sent * 100 / up.bytes.length) + '%';
+        armUploadTimeout();
+    }
+
+    function finishUploadUI(name) {
+        if (up) clearTimeout(up.timer);
+        up = null;
+        document.getElementById('up-bar').classList.add('hidden');
+        showToast('Route sent — GLYPH is showing it now', 'success');
+        logEvent('file', 'uploaded ' + name);
+        // Cardul are un fisier in plus: lista trebuie sa-l arate.
+        if (isConnected) setTimeout(requestSDList, 400);
+    }
+
+    function failUpload(why) {
+        if (up) clearTimeout(up.timer);
+        up = null;
+        document.getElementById('up-bar').classList.add('hidden');
+        showToast('Upload failed: ' + why, 'error');
+    }
+
+    function cancelUpload() {
+        if (!up) return;
+        sendCmd('CMD_PUTABORT');
+        clearTimeout(up.timer);
+        up = null;
+        document.getElementById('up-bar').classList.add('hidden');
+        showToast('Upload cancelled');
+    }
 
 </script>
 </body>
