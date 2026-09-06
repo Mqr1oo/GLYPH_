@@ -590,6 +590,24 @@ header{
   .coach-card{transition:none}
 }
 
+/* ---------- SOS in curs ---------- */
+.sos-banner{
+  position:fixed;left:12px;right:12px;
+  bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 10px);
+  z-index:900;display:flex;align-items:center;gap:11px;
+  padding:11px 13px;border-radius:13px;
+  background:rgba(51,21,18,.97);border:1px solid rgba(255,90,77,.65);
+  box-shadow:0 8px 26px rgba(0,0,0,.6);
+}
+.sos-banner.standby{background:rgba(30,24,16,.97);border-color:rgba(255,176,32,.55)}
+.sos-banner.standby .rec-dot{background:var(--warn)}
+.sos-text{font-size:13.5px;font-weight:700;color:#FFC9C3;letter-spacing:.02em}
+.sos-banner.standby .sos-text{color:#FFDFA8}
+body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
+
+/* Confirmarea venita pe radio - o treapta peste "emis". */
+.msg-status.heard{color:#BFF3D8;font-weight:700}
+
 /* ---------- notificari scurte ---------- */
 #toasts{
   position:fixed;left:0;right:0;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);
@@ -1090,6 +1108,49 @@ header{
       </div>
     </div>
 
+    <div class="card needs-link" id="card-range">
+      <div class="card-head">Range check
+        <button class="mini" onclick="sendRangePing()">PING</button>
+      </div>
+      <div class="list-body" id="range-list">
+        <div class="empty">No replies yet.<br>
+          Ping asks every GLYPH in range to answer with how well it heard you.</div>
+      </div>
+    </div>
+
+    <div class="card needs-link" id="card-diag">
+      <div class="card-head">Diagnostics
+        <button class="mini" onclick="requestDiag()">RUN</button>
+        <button class="mini" onclick="copyDiag()">COPY</button>
+      </div>
+      <div class="rows" id="diag-body">
+        <div class="empty">Asks the device what actually answers on its internal bus.<br>
+          Useful when a sensor seems dead: it tells you whether the chip replies at all.</div>
+      </div>
+    </div>
+
+    <div class="card needs-link" id="card-fw">
+      <div class="card-head">Firmware</div>
+      <div class="action-list">
+        <button class="action" onclick="pickFirmware()">
+          <span class="ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
+            </svg>
+          </span>
+          <span>Update over Bluetooth<span class="sub">pick a .bin file &middot; device keeps old one if it fails</span></span>
+        </button>
+        <input type="file" id="fw-file" accept=".bin" class="hidden" onchange="handleFirmwarePicked(event)">
+      </div>
+      <div class="dl-bar hidden" id="ota-bar">
+        <div class="dl-top">
+          <span id="ota-name">firmware.bin</span>
+          <button class="mini danger" onclick="cancelOta()">STOP</button>
+        </div>
+        <div class="dl-track"><div class="dl-fill" id="ota-fill"></div></div>
+      </div>
+    </div>
+
     <!-- Reluarea ghidului sta aici, nu in antet: antetul e ingust si semnul de
          intrebare se suprapunea peste insigna de mod. -->
     <div class="card">
@@ -1214,6 +1275,13 @@ header{
   </div>
 </div>
 
+<!-- SOS in curs: se vede din orice ecran, si se opreste doar deliberat. -->
+<div id="sos-banner" class="sos-banner hidden">
+  <span class="rec-dot"></span>
+  <div style="flex:1;min-width:0"><div class="sos-text" id="sos-text">SOS</div></div>
+  <button class="mini danger" onclick="stopSos()">STOP</button>
+</div>
+
 <div id="toasts"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -1282,6 +1350,7 @@ header{
     let lastHealthState = 'OK';
     let isSecureMode = false;
     let currentTeam = 'ALPHA';
+    let lastOutgoingId = null;
     let sdPresent = true;
     const BATTERY_ALERT_PCT = 20;
     let recentTxMessages = []; 
@@ -1672,6 +1741,34 @@ header{
         if (val.startsWith("SYS_PUT_ACK:")) { sendNextUploadChunk(); return; }
         if (val.startsWith("SYS_PUT_DONE:")) { finishUploadUI(val.substring(13)); return; }
         if (val.startsWith("SYS_PUT_ERR:"))  { failUpload(val.substring(12)); return; }
+
+        // ---- actualizarea firmware-ului ----
+        if (val === "SYS_OTA_READY")        { sendNextOtaChunk(); return; }
+        if (val.startsWith("SYS_OTA_ACK:")) { sendNextOtaChunk(); return; }
+        if (val === "SYS_OTA_DONE")         { finishOtaUI(); return; }
+        if (val.startsWith("SYS_OTA_ERR:")) { failOta(val.substring(12)); return; }
+
+        // ---- confirmare venita pe radio de la un coechipier ----
+        if (val.startsWith("SYS_ACK:")) {
+            const p = val.substring(8).split('|');
+            if (p.length >= 2) noteRadioAck(p[0], p.slice(1).join('|'));
+            return;
+        }
+
+        // ---- starea SOS ----
+        if (val.startsWith("SYS_SOS:")) {
+            const p = val.substring(8).split('|');
+            setSosState(parseInt(p[0], 10), p[1] || '');
+            return;
+        }
+
+        // ---- masurarea razei ----
+        if (val.startsWith("SYS_RANGE:")) { noteRangeReply(val.substring(10)); return; }
+
+        // ---- diagnostic ----
+        if (val === "SYS_DIAG_BEGIN") { diagLines.length = 0; return; }
+        if (val.startsWith("SYS_DIAG:")) { noteDiagLine(val.substring(9)); return; }
+        if (val === "SYS_DIAG_END") { renderDiag(); return; }
         if (val.startsWith("SYS_FILE_ERR:")) {
             dl = null;
             document.getElementById('dl-bar').classList.add('hidden');
@@ -1809,6 +1906,7 @@ header{
         if (await sendCmd(text)) {
             appendMsg(text, 'tx', { id, status: 'pending' });
             trackOutgoing(id, text);
+            lastOutgoingId = id;
             logEvent('tx', text);
             feedTrip('tx');
             return true;
@@ -3254,20 +3352,7 @@ header{
         setTimeout(tick, 600);
     }
 
-    // =====================================================================
-    // PORNIRE
-    // =====================================================================
-    (function initGlyphExtras() {
-        // Comenzile catre aparat pleaca stinse: fara legatura n-au ce sa faca.
-        setControlsEnabled(false);
-        renderSecureBadge();
-        recoverSessions().then(renderSessions).catch(() => {});
-        // Cronometrul din banda de inregistrare: minutele trec si fara pozitii noi.
-        setInterval(renderRecBanner, 30000);
-        renderQuickBar();
-        restoreChat().catch(() => {});
-        maybeShowGuide();
-    })();
+
 
     // =====================================================================
     // TRIMITEREA UNEI RUTE CATRE CARDUL GLYPH
@@ -3362,6 +3447,266 @@ header{
         document.getElementById('up-bar').classList.add('hidden');
         showToast('Upload cancelled');
     }
+
+    // =====================================================================
+    // CONFIRMARI VENITE PE RADIO
+    //
+    // Aparatul trimite SYS_ACK cand un coechipier a auzit mesajul nostru. E o
+    // treapta peste "sent on air": aia inseamna ca radioul a emis, asta
+    // inseamna ca l-a auzit cineva. Pentru un mesaj de pe munte, diferenta e
+    // singurul lucru care conteaza.
+    // =====================================================================
+
+    const ackHeardBy = new Map();      // contor (hex) -> Set de nume
+
+    function noteRadioAck(sender, body) {
+        // corpul: "NUME: 0000001A>DESTINATAR"
+        const m = String(body).match(/([0-9A-Fa-f]{8})>(.+)$/);
+        if (!m) return;
+        const ctr = m[1].toUpperCase();
+
+        if (!ackHeardBy.has(ctr)) ackHeardBy.set(ctr, new Set());
+        ackHeardBy.get(ctr).add(sender);
+        if (ackHeardBy.size > 60) ackHeardBy.delete(ackHeardBy.keys().next().value);
+
+        // Aparatul nu ne spune ce contor a primit mesajul nostru, deci legam
+        // confirmarea de cel mai recent mesaj trimis si inca neconfirmat.
+        const target = lastOutgoingId;
+        if (!target) return;
+        const names = [...ackHeardBy.get(ctr)].join(', ');
+        setMsgStatus(target, 'heard');
+        const el = document.querySelector('[data-msgid="' + target + '"] .msg-status');
+        if (el) el.innerText = 'heard by ' + names;
+        showToast(sender + ' received your message', 'success');
+        logEvent('ack', sender);
+    }
+
+    // =====================================================================
+    // SOS: starea raportata de aparat
+    // =====================================================================
+    let sosState = 0;      // 0 oprit, 1 difuzeaza, 2 in pauza intre reluari
+
+    function setSosState(kind, arg) {
+        sosState = kind;
+        const el = document.getElementById('sos-banner');
+        if (!el) return;
+        if (kind === 0) {
+            el.classList.add('hidden');
+            document.body.classList.remove('sos-on');
+            return;
+        }
+        el.classList.remove('hidden');
+        document.body.classList.add('sos-on');
+        document.getElementById('sos-text').innerText = (kind === 1)
+            ? 'SOS BROADCASTING — round ' + arg
+            : 'SOS armed — next call in ' + arg + 's';
+        el.classList.toggle('standby', kind === 2);
+    }
+
+    function stopSos() {
+        showConfirm('Stop SOS',
+            'This stops the distress call completely. It will not repeat again.',
+            () => sendCmd('CMD_SOS_STOP'));
+    }
+
+    // =====================================================================
+    // MASURAREA RAZEI
+    // =====================================================================
+    const rangeSamples = [];
+
+    function sendRangePing() {
+        if (!isConnected) { showToast('Connect to GLYPH first', 'warning'); return; }
+        sendCmd('CMD_PING');
+        showToast('Ping sent — waiting for replies');
+    }
+
+    function noteRangeReply(line) {
+        // "NUME|rssi|snr|corp"
+        const p = line.split('|');
+        if (p.length < 3) return;
+        rangeSamples.unshift({
+            peer: p[0], rssi: parseFloat(p[1]), snr: parseFloat(p[2]), t: Date.now()
+        });
+        if (rangeSamples.length > 50) rangeSamples.pop();
+        renderRange();
+        showToast(p[0] + ' answered: ' + p[1] + ' dBm', 'success');
+    }
+
+    // toLocaleTimeString().slice(0,5) da "3:23:" la ore cu o singura cifra.
+    function fmtClock(ts) {
+        const d = new Date(ts);
+        return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+
+    function renderRange() {
+        const box = document.getElementById('range-list');
+        if (!box) return;
+        if (!rangeSamples.length) {
+            box.innerHTML = '<div class="empty">No replies yet.<br>'
+                + 'Ping asks every GLYPH in range to answer with how well it heard you.</div>';
+            return;
+        }
+        box.innerHTML = rangeSamples.map(s => {
+            // Sub -15 dB SNR esti la limita a ce poate decoda radioul.
+            const cls = s.snr > -5 ? 'good' : (s.snr > -15 ? '' : 'bad');
+            return `<div class="file-row">
+                <div class="file-main">
+                  <div class="file-name">${escapeHtml(s.peer)}</div>
+                  <div class="file-sub">${fmtClock(s.t)}</div>
+                </div>
+                <span class="row-value ${cls}">${s.rssi} dBm</span>
+                <span class="row-value ${cls}">${s.snr} dB</span>
+              </div>`;
+        }).join('');
+    }
+
+    // =====================================================================
+    // DIAGNOSTIC
+    // =====================================================================
+    const diagLines = [];
+
+    function requestDiag() {
+        if (!isConnected) { showToast('Connect to GLYPH first', 'warning'); return; }
+        diagLines.length = 0;
+        document.getElementById('diag-body').innerHTML = '<div class="empty">Asking the device…</div>';
+        sendCmd('CMD_DIAG');
+    }
+
+    function noteDiagLine(line) {
+        const i = line.indexOf('|');
+        if (i < 0) return;
+        diagLines.push({ k: line.slice(0, i), v: line.slice(i + 1) });
+    }
+
+    function renderDiag() {
+        const box = document.getElementById('diag-body');
+        if (!box) return;
+        if (!diagLines.length) { box.innerHTML = '<div class="empty">No answer.</div>'; return; }
+        box.innerHTML = diagLines.map(d =>
+            '<div class="row stack"><span class="row-label">' + escapeHtml(d.k) + '</span>'
+            + '<span class="row-value" style="font-size:12.5px">' + escapeHtml(d.v) + '</span></div>'
+        ).join('');
+    }
+
+    function copyDiag() {
+        const text = diagLines.map(d => d.k + ': ' + d.v).join('\n');
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(() => showToast('Copied', 'success'))
+                .catch(() => showToast('Could not copy', 'error'));
+        }
+    }
+
+    // =====================================================================
+    // ACTUALIZAREA FIRMWARE-ULUI
+    //
+    // Acelasi mecanism ca la incarcarea unei rute - o bucata in zbor,
+    // confirmata inainte de urmatoarea - dar destinatia e partitia OTA.
+    // Aparatul scrie in partitia INACTIVA si comuta pe ea abia la final, deci o
+    // intrerupere la jumatate il lasa pe firmware-ul vechi, functional.
+    // =====================================================================
+    let ota = null;
+
+    function pickFirmware() {
+        if (!isConnected) { showToast('Connect to GLYPH first', 'warning'); return; }
+        document.getElementById('fw-file').click();
+    }
+
+    function handleFirmwarePicked(ev) {
+        const f = ev.target.files && ev.target.files[0];
+        ev.target.value = '';
+        if (!f) return;
+
+        if (!/\.bin$/i.test(f.name)) { showToast('That is not a .bin firmware file', 'error'); return; }
+        if (f.size < 65536) { showToast('That file is too small to be firmware', 'error'); return; }
+
+        showConfirm('Update firmware',
+            'Send <b>' + escapeHtml(f.name) + '</b> (' + Math.round(f.size / 1024) + ' KB) to GLYPH?'
+            + '<br><br>Keep the phone near the device. It restarts when done. '
+            + 'If anything interrupts it, the device simply keeps the firmware it has now.',
+            () => {
+                const r = new FileReader();
+                r.onload = () => startOta(f.name, new Uint8Array(r.result));
+                r.readAsArrayBuffer(f);
+            });
+    }
+
+    function startOta(name, bytes) {
+        if (ota) { showToast('An update is already running', 'warning'); return; }
+        ota = { name, bytes, sent: 0, timer: null, t0: Date.now() };
+        document.getElementById('ota-bar').classList.remove('hidden');
+        document.getElementById('ota-name').innerText = name;
+        document.getElementById('ota-fill').style.width = '0%';
+        sendCmd('CMD_OTA:' + bytes.length);
+        armOtaTimeout();
+    }
+
+    function armOtaTimeout() {
+        if (!ota) return;
+        clearTimeout(ota.timer);
+        ota.timer = setTimeout(() => {
+            if (!ota) return;
+            sendCmd('CMD_OTAABORT');
+            failOta('no answer from the device');
+        }, 12000);
+    }
+
+    function sendNextOtaChunk() {
+        if (!ota) return;
+        if (ota.sent >= ota.bytes.length) { sendCmd('CMD_OTAEND'); armOtaTimeout(); return; }
+        const slice = ota.bytes.slice(ota.sent, ota.sent + UPLOAD_CHUNK_BYTES);
+        ota.sent += slice.length;
+        sendCmd('CMD_OTAD:' + bytesToB64(slice));
+
+        const pct = ota.sent * 100 / ota.bytes.length;
+        document.getElementById('ota-fill').style.width = pct.toFixed(1) + '%';
+        const elapsed = (Date.now() - ota.t0) / 1000;
+        const left = elapsed > 2 ? Math.round(elapsed * (100 / Math.max(pct, 0.1) - 1)) : 0;
+        document.getElementById('ota-name').innerText =
+            ota.name + ' — ' + pct.toFixed(0) + '%' + (left ? ' · ~' + left + 's left' : '');
+        armOtaTimeout();
+    }
+
+    function finishOtaUI() {
+        if (ota) clearTimeout(ota.timer);
+        ota = null;
+        document.getElementById('ota-bar').classList.add('hidden');
+        showAlert('Update complete',
+            'GLYPH is restarting with the new firmware. Reconnect in a few seconds.');
+    }
+
+    function failOta(why) {
+        if (ota) clearTimeout(ota.timer);
+        ota = null;
+        document.getElementById('ota-bar').classList.add('hidden');
+        showAlert('Update failed',
+            escapeHtml(why) + '<br><br>The device kept the firmware it already had, '
+            + 'so it is still working. You can try again.');
+    }
+
+    function cancelOta() {
+        if (!ota) return;
+        sendCmd('CMD_OTAABORT');
+        clearTimeout(ota.timer);
+        ota = null;
+        document.getElementById('ota-bar').classList.add('hidden');
+        showToast('Update cancelled');
+    }
+
+    // =====================================================================
+    // PORNIRE
+    // =====================================================================
+    (function initGlyphExtras() {
+        // Comenzile catre aparat pleaca stinse: fara legatura n-au ce sa faca.
+        setControlsEnabled(false);
+        renderSecureBadge();
+        recoverSessions().then(renderSessions).catch(() => {});
+        // Cronometrul din banda de inregistrare: minutele trec si fara pozitii noi.
+        setInterval(renderRecBanner, 30000);
+        renderQuickBar();
+        renderRange();
+        restoreChat().catch(() => {});
+        maybeShowGuide();
+    })();
 
 </script>
 </body>
