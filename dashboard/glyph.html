@@ -590,6 +590,30 @@ header{
   .coach-card{transition:none}
 }
 
+/* ---------- starea firmware-ului ---------- */
+.fw-state{padding:12px 16px;border-bottom:1px solid var(--line-soft)}
+.fw-line{
+  display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  font-size:13.5px;color:var(--ink-2);padding:3px 0;
+}
+.fw-line b{font-family:var(--mono);font-size:14px;color:var(--ink);font-weight:600}
+.fw-line em{font-style:normal;font-size:10.5px;color:var(--ink-3)}
+.fw-note{font-size:12.5px;line-height:1.5;color:var(--ink-3);margin-top:7px}
+
+/* Rosu cand aparatul a ramas in urma - starea in care se afla acum oricine a
+   flash-uit de pe site inainte de o actualizare. */
+.fw-state.behind{background:var(--danger-dim);border-bottom-color:rgba(255,90,77,.3)}
+.fw-state.behind .fw-note{color:#FFC9C3;font-weight:600}
+.fw-state.behind .fw-line b{color:#FF8B80}
+
+.fw-state.ok{background:rgba(53,208,127,.07)}
+.fw-state.ok .fw-note{color:#9FE9C2}
+
+/* Aparatul e mai nou decat site-ul: binarul publicat e vechi si oricine il
+   foloseste primeste build-ul depasit. */
+.fw-state.ahead{background:rgba(255,176,32,.08)}
+.fw-state.ahead .fw-note{color:#FFDFA8}
+
 /* ---------- SOS in curs ---------- */
 .sos-banner{
   position:fixed;left:12px;right:12px;
@@ -1131,14 +1155,26 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
 
     <div class="card needs-link" id="card-fw">
       <div class="card-head">Firmware</div>
+      <!-- Versiunea de pe aparat, langa cea publicata pe site. Rosu daca
+           aparatul a ramas in urma. -->
+      <div class="fw-state" id="fw-state"></div>
+
       <div class="action-list">
-        <button class="action" onclick="pickFirmware()">
+        <button class="action" id="btn-fw-site" onclick="updateFromSite()">
           <span class="ico">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
             </svg>
           </span>
-          <span>Update over Bluetooth<span class="sub">pick a .bin file &middot; device keeps old one if it fails</span></span>
+          <span>Update from the site<span class="sub">downloads the published build &middot; no file to find</span></span>
+        </button>
+        <button class="action" onclick="pickFirmware()">
+          <span class="ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/>
+            </svg>
+          </span>
+          <span>Pick a .bin file<span class="sub">for a build you compiled yourself</span></span>
         </button>
         <input type="file" id="fw-file" accept=".bin" class="hidden" onchange="handleFirmwarePicked(event)">
       </div>
@@ -1530,6 +1566,8 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         setRecording(false);
         setControlsEnabled(false);
         clearTeammates();
+        deviceVersion = null;
+        renderFirmwareState();
         logEvent('link', 'disconnected');
 
         // O sesiune de inregistrare ramane deschisa: aparatul poate fi inca in
@@ -1675,6 +1713,11 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
             return;
         }
         if (val.startsWith("SYS_PWR:")) { markPowerMode(parseInt(val.split(":")[1], 10)); return; }
+        if (val.startsWith("SYS_VER:")) {
+            deviceVersion = val.substring(8).trim();
+            renderFirmwareState();
+            return;
+        }
         if (val.startsWith("SYS_SD:")) {
             sdPresent = val.split(":")[1] === "1";
             const w = document.getElementById('sd-missing');
@@ -3693,6 +3736,149 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     }
 
     // =====================================================================
+    // FIRMWARE-UL DE PE SITE
+    //
+    // Aplicatia sta la dashboard/glyph.html, binarul la flasher/firmware.bin,
+    // pe acelasi site - deci il poate citi direct, fara ca tu sa cauti fisiere
+    // prin telefon. Langa el, firmware.json spune ce versiune este.
+    //
+    // De ce exista firmware.json: dintr-un .bin nu se poate citi de afara ce
+    // versiune contine, fara sa scormonesti prin octeti dupa un sir de
+    // caractere - fragil si gata sa minta. Un fisier de descriere e cinstit,
+    // cu conditia sa fie actualizat; de aceea aplicatia verifica si
+    // dimensiunea, si spune deschis cand descrierea nu se potriveste cu
+    // binarul, in loc sa te lase sa crezi ceva gresit.
+    // =====================================================================
+
+    const FW_BIN_URL  = '../flasher/firmware.bin';
+    const FW_META_URL = '../flasher/firmware.json';
+
+    let deviceVersion = null;    // ce ruleaza aparatul acum
+    let siteFirmware  = null;    // ce e publicat pe site
+
+    // Versiunile sunt de forma ZZ.LL.AA - o data, nu un numar de versiune.
+    // Comparate ca text, "09.01.27" ar iesi mai mica decat "10.08.26", ceea ce
+    // e pe dos. Le transformam in an-luna-zi si comparam ca numere.
+    function versionKey(v) {
+        const m = String(v || '').trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+        if (!m) return null;
+        let year = parseInt(m[3], 10);
+        if (year < 100) year += 2000;
+        return year * 10000 + parseInt(m[2], 10) * 100 + parseInt(m[1], 10);
+    }
+
+    // -1 aparatul e mai vechi, 0 la fel, 1 aparatul e mai nou, null necomparabile
+    function compareVersions(devVer, siteVer) {
+        const a = versionKey(devVer), b = versionKey(siteVer);
+        if (a === null || b === null) return null;
+        return a < b ? -1 : (a > b ? 1 : 0);
+    }
+
+    async function loadSiteFirmwareInfo() {
+        // Deschisa direct de pe disc (file://), pagina nu are un site de unde
+        // sa citeasca. Nu incercam: fetch ar arunca oricum, si ar lasa in
+        // consola o eroare care arata ca o defectiune, desi nu e.
+        if (location.protocol === 'file:') { siteFirmware = null; renderFirmwareState(); return; }
+        try {
+            const r = await fetch(FW_META_URL, { cache: 'no-store' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            siteFirmware = await r.json();
+        } catch (e) {
+            siteFirmware = null;
+        }
+        renderFirmwareState();
+    }
+
+    function renderFirmwareState() {
+        const box = document.getElementById('fw-state');
+        const btn = document.getElementById('btn-fw-site');
+        if (!box) return;
+
+        const dev = deviceVersion || '--';
+
+        if (!siteFirmware) {
+            // Deschis de pe disc, sau site fara firmware.json: nu inventam nimic.
+            box.className = 'fw-state';
+            box.innerHTML = '<div class="fw-line"><span>On the device</span><b>' + escapeHtml(dev) + '</b></div>'
+                + '<div class="fw-note">Could not read the version published on the site. '
+                + 'You can still pick a .bin file by hand.</div>';
+            if (btn) btn.disabled = true;
+            return;
+        }
+
+        if (btn) btn.disabled = false;
+        const cmp = compareVersions(deviceVersion, siteFirmware.version);
+        let cls = '', note = '';
+
+        if (!deviceVersion) {
+            note = 'Connect to GLYPH to compare with what it is running.';
+        } else if (cmp === -1) {
+            cls = 'behind';
+            note = 'The device is running an older build than the one published here.';
+        } else if (cmp === 0) {
+            cls = 'ok';
+            note = 'The device is up to date.';
+        } else if (cmp === 1) {
+            cls = 'ahead';
+            note = 'The device is NEWER than the site. If you just compiled, the '
+                 + 'binary on the site still needs replacing — anyone flashing from '
+                 + 'there gets the old one.';
+        } else {
+            note = 'Versions cannot be compared (unexpected format).';
+        }
+
+        box.className = 'fw-state ' + cls;
+        box.innerHTML =
+            '<div class="fw-line"><span>On the device</span><b>' + escapeHtml(dev) + '</b></div>'
+          + '<div class="fw-line"><span>On the site</span><b>' + escapeHtml(siteFirmware.version || '--')
+          + (siteFirmware.built ? ' <em>' + escapeHtml(siteFirmware.built) + '</em>' : '') + '</b></div>'
+          + '<div class="fw-note">' + note + '</div>';
+    }
+
+    async function updateFromSite() {
+        if (!isConnected) { showToast('Connect to GLYPH first', 'warning'); return; }
+        if (ota) { showToast('An update is already running', 'warning'); return; }
+        if (!siteFirmware) { showToast('No firmware published on the site', 'error'); return; }
+
+        showToast('Downloading firmware…');
+        let bytes;
+        try {
+            const r = await fetch(FW_BIN_URL, { cache: 'no-store' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            bytes = new Uint8Array(await r.arrayBuffer());
+        } catch (e) {
+            showAlert('Download failed',
+                'Could not fetch the firmware from the site.<br><br>'
+                + escapeHtml(String(e.message || e)));
+            return;
+        }
+
+        // Descrierea si binarul trebuie sa fie despre acelasi fisier. Daca nu
+        // sunt, versiunea afisata e o minciuna si nu trimitem nimic pe baza ei.
+        if (siteFirmware.size && bytes.length !== siteFirmware.size) {
+            showAlert('Site data does not match',
+                'firmware.json says ' + siteFirmware.size + ' bytes but firmware.bin is '
+                + bytes.length + '.<br><br>One of the two was updated without the other, '
+                + 'so the version shown cannot be trusted. Fix firmware.json before flashing '
+                + 'from here.');
+            return;
+        }
+
+        const cmp = compareVersions(deviceVersion, siteFirmware.version);
+        const warn = (cmp === 1)
+            ? '<br><br><b>Careful:</b> the device is running a NEWER build than this one. '
+              + 'Sending it would move the device backwards.'
+            : '';
+
+        showConfirm('Update from site',
+            'Send version <b>' + escapeHtml(siteFirmware.version) + '</b> ('
+            + Math.round(bytes.length / 1024) + ' KB) to GLYPH?' + warn
+            + '<br><br>Keep the phone near the device. It restarts when done. If anything '
+            + 'interrupts it, the device simply keeps the firmware it has now.',
+            () => startOta('firmware.bin (' + siteFirmware.version + ')', bytes));
+    }
+
+    // =====================================================================
     // PORNIRE
     // =====================================================================
     (function initGlyphExtras() {
@@ -3704,6 +3890,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         setInterval(renderRecBanner, 30000);
         renderQuickBar();
         renderRange();
+        loadSiteFirmwareInfo();
         restoreChat().catch(() => {});
         maybeShowGuide();
     })();
