@@ -3925,7 +3925,13 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     // binarul, in loc sa te lase sa crezi ceva gresit.
     // =====================================================================
 
-    const FW_BIN_URL  = '../flasher/firmware.bin';
+    // Doua fisiere, doua drumuri. Imaginea contopita e pentru cablu: pagina de
+    // flash scrie de la offsetul 0, deci ii trebuie bootloader si tabela de
+    // partitii. Prin Bluetooth se scrie DOAR in partitia de aplicatie, deci
+    // acolo pleaca imaginea de aplicatie - un sfert din date pe o legatura care
+    // e oricum partea inceata.
+    const FW_BIN_URL  = '../flasher/firmware.bin';       // cablu, ~4 MB
+    const FW_APP_URL  = '../flasher/firmware.app.bin';   // Bluetooth, ~1,4 MB
     const FW_META_URL = '../flasher/firmware.json';
 
     let deviceVersion = null;    // ce ruleaza aparatul acum
@@ -4102,40 +4108,70 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
           + '<div class="fw-note">' + note + '</div>';
     }
 
+    // Ia fisierul de aplicatie daca e publicat; daca nu e, cade inapoi pe cel
+    // contopit si decupeaza din el. Un site care are doar firmware.bin merge
+    // mai departe fara sa se strice nimic.
+    async function fetchSiteFirmware() {
+        try {
+            const r = await fetch(FW_APP_URL, { cache: 'no-store' });
+            if (r.ok) {
+                const bytes = new Uint8Array(await r.arrayBuffer());
+                if (classifyFirmware(bytes).kind === 'app') {
+                    return { bytes, source: 'app' };
+                }
+                // Publicat sub numele gresit: mai bine spunem, nu trimitem.
+                const err = new Error('firmware.app.bin is not an application image. '
+                    + 'It should be GLYPH_.ino.bin (~1.4 MB), not the merged 4 MB file. '
+                    + 'Run flasher/publish.py, which checks this before copying anything.');
+                err.wrongFile = true;
+                throw err;
+            }
+            if (r.status !== 404) throw new Error('HTTP ' + r.status);
+        } catch (e) {
+            if (e && e.wrongFile) throw e;
+            // altfel: nu exista, sau reteaua a refuzat - incercam celalalt fisier
+        }
+
+        const r2 = await fetch(FW_BIN_URL, { cache: 'no-store' });
+        if (!r2.ok) throw new Error('HTTP ' + r2.status);
+        return { bytes: new Uint8Array(await r2.arrayBuffer()), source: 'merged' };
+    }
+
     async function updateFromSite() {
         if (!isConnected) { showToast('Connect to GLYPH first', 'warning'); return; }
+        if (legacyBlocked('Updating over Bluetooth')) return;
         if (ota) { showToast('An update is already running', 'warning'); return; }
         if (!siteFirmware) { showToast('No firmware published on the site', 'error'); return; }
 
         showToast('Downloading firmware…');
-        let bytes;
+        let got;
         try {
-            const r = await fetch(FW_BIN_URL, { cache: 'no-store' });
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            bytes = new Uint8Array(await r.arrayBuffer());
+            got = await fetchSiteFirmware();
         } catch (e) {
-            showAlert('Download failed',
-                'Could not fetch the firmware from the site.<br><br>'
+            showAlert(e && e.wrongFile ? 'Wrong file published' : 'Download failed',
+                (e && e.wrongFile ? '' : 'Could not fetch the firmware from the site.<br><br>')
                 + escapeHtml(String(e.message || e)));
             return;
         }
 
         // Descrierea si binarul trebuie sa fie despre acelasi fisier. Daca nu
         // sunt, versiunea afisata e o minciuna si nu trimitem nimic pe baza ei.
-        if (siteFirmware.size && bytes.length !== siteFirmware.size) {
+        const declared = got.source === 'app' ? siteFirmware.app_size : siteFirmware.size;
+        const fname    = got.source === 'app' ? 'firmware.app.bin' : 'firmware.bin';
+        if (declared && got.bytes.length !== declared) {
             showAlert('Site data does not match',
-                'firmware.json says ' + siteFirmware.size + ' bytes but firmware.bin is '
-                + bytes.length + '.<br><br>One of the two was updated without the other, '
-                + 'so the version shown cannot be trusted. Fix firmware.json before flashing '
-                + 'from here.');
+                'firmware.json says ' + declared + ' bytes but ' + fname + ' is '
+                + got.bytes.length + '.<br><br>One of the two was updated without the '
+                + 'other, so the version shown cannot be trusted. Fix firmware.json '
+                + 'before sending anything from here.');
             return;
         }
 
-        // Marimea din confirmare trebuie sa fie a APLICATIEI care pleaca, nu a
-        // fisierului: dintr-o imagine contopita de 4 MB se trimite ~1,4 MB, si
+        // Marimea din confirmare e a APLICATIEI care pleaca, nu a fisierului
+        // descarcat: dintr-o imagine contopita de 4 MB se trimite ~1,4 MB, si
         // "4096 KB" ar fi pur si simplu o cifra falsa.
-        let appBytes = bytes;
-        try { appBytes = extractAppImage(bytes).bytes; }
+        let appBytes;
+        try { appBytes = extractAppImage(got.bytes).bytes; }
         catch (e) {
             showAlert('Not a usable firmware file', escapeHtml(String(e.message || e)));
             return;
@@ -4147,14 +4183,23 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
               + 'Sending it would move the device backwards.'
             : '';
 
+        // Fara fisierul de aplicatie se descarca 4 MB ca sa se trimita 1,4.
+        // Merge, dar merita spus o data.
+        const note = got.source === 'merged'
+            ? '<br><br>The site has no <code>firmware.app.bin</code>, so the 4 MB cable '
+            + 'image was downloaded and the application cut out of it. Publishing '
+            + '<code>GLYPH_.ino.bin</code> as <code>firmware.app.bin</code> would make '
+            + 'this download a quarter of the size.'
+            : '';
+
         showConfirm('Update from site',
             'Send version <b>' + escapeHtml(siteFirmware.version) + '</b> ('
             + Math.round(appBytes.length / 1024) + ' KB) to GLYPH?' + warn
             + '<br><br>This takes <b>several minutes</b> — a firmware image is about '
             + '1.4 MB and Bluetooth sends it in small pieces. Keep the phone near the '
             + 'device and the screen on. It restarts when done. If anything interrupts '
-            + 'it, the device simply keeps the firmware it has now.',
-            () => startOta('firmware ' + siteFirmware.version, bytes));
+            + 'it, the device simply keeps the firmware it has now.' + note,
+            () => startOta('firmware ' + siteFirmware.version, got.bytes));
     }
 
     // =====================================================================
