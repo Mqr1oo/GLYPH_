@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "Descrie binarul de langa el. Aplicatia de telefon il citeste ca sa spuna",
+    "daca aparatul tau a ramas in urma fata de ce e publicat aici.",
+    "",
+    "DUPA FIECARE EXPORT DE BINAR, actualizeaza trei campuri:",
+    "  version - aceeasi valoare ca OS_VERSION din Arduino/GLYPH_.ino",
+    "  size    - dimensiunea reala, in octeti, a fisierului firmware.bin",
+    "  built   - data compilarii, ca AAAA-LL-ZZ",
+    "",
+    "Daca size nu se potriveste cu fisierul real, aplicatia spune ca descrierea",
+    "e invechita in loc sa te lase sa crezi ceva gresit."
+  ],
+  "version": "10.08.26",
+  "size": 4194304,
+  "built": "2026-04-20",
+  "notes": "Versiune de referinta - inlocuieste dupa prima compilare."
+}
