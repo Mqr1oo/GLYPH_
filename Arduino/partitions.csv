@@ -1,0 +1,19 @@
+# Name,     Type, SubType,  Offset,   Size,     Flags
+# Two application slots. The running firmware writes an update into the other
+# one and the bootloader switches over only after the image checks out, so a
+# failed update leaves the device on the firmware it already had.
+#
+# The stock scheme had ONE app slot of 3 MB, which makes over-the-air updates
+# impossible: there is nowhere to write except the partition being executed,
+# and esp_ota_begin() refuses that. 1920 KB per slot is ample - the firmware is
+# about 1440 KB.
+#
+# SPIFFS is not used by this firmware (the SD card holds everything), so its
+# partition is kept small, just large enough that tooling expecting one is
+# happy.
+nvs,        data, nvs,      0x9000,   0x5000,
+otadata,    data, ota,      0xE000,   0x2000,
+app0,       app,  ota_0,    0x10000,  0x1E0000,
+app1,       app,  ota_1,    0x1F0000, 0x1E0000,
+spiffs,     data, spiffs,   0x3D0000, 0x20000,
+coredump,   data, coredump, 0x3F0000, 0x10000,
