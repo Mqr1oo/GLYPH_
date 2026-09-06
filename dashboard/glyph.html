@@ -116,18 +116,58 @@ body.is-recording #link-text{display:none}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--ink-3);flex:0 0 auto}
 .dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(53,208,127,.16)}
 
-.btn-connect{
-  /* flex:0 0 auto - butonul nu se micsoreaza niciodata, deci nimic din stanga
-     nu poate ajunge pe sub el. Inainte putea fi comprimat si insignele treceau
-     peste text. */
-  flex:0 0 auto;
-  min-height:36px;padding:0 16px;
-  background:var(--accent);color:#fff;border:0;border-radius:999px;
-  font-family:var(--sans);font-size:13px;font-weight:600;letter-spacing:.04em;
-  cursor:pointer;white-space:nowrap;transition:background .15s,transform .1s;
+/* ---------- the logo is the connect button ---------- */
+.logo-btn{
+  position:relative;flex:none;width:44px;height:44px;padding:0;
+  background:none;border:0;cursor:pointer;display:grid;place-items:center;
 }
-.btn-connect:active{transform:scale(.97)}
-.btn-connect.active{background:var(--surface-3);color:var(--ink-2)}
+.logo-btn img{width:30px;height:30px;display:block;opacity:.55;transition:opacity .2s}
+.logo-btn.linked img{opacity:1}
+.logo-ring{
+  position:absolute;inset:1px;border-radius:50%;
+  border:2px solid var(--surface-3);transition:border-color .25s, box-shadow .25s;
+}
+.logo-btn.linked .logo-ring{
+  border-color:var(--ok);box-shadow:0 0 0 3px rgba(53,208,127,.14);
+}
+.logo-btn.busy .logo-ring{border-color:var(--warn);animation:recPulse 1.2s ease-in-out infinite}
+/* A small power glyph while disconnected, so the logo reads as something to
+   press rather than decoration. It goes away once linked. */
+.logo-plug{
+  position:absolute;right:-1px;bottom:-1px;width:13px;height:13px;
+  color:var(--ink-3);background:var(--bg);border-radius:50%;padding:1px;
+}
+.logo-btn.linked .logo-plug{display:none}
+.logo-btn:active{transform:scale(.94)}
+
+/* ---------- battery capsule ---------- */
+.batt-pill{
+  position:relative;flex:0 0 auto;
+  display:inline-flex;align-items:center;justify-content:center;gap:3px;
+  width:56px;height:26px;padding:0 7px;
+  border-radius:999px;border:1.5px solid var(--ink-3);
+  background:var(--surface-2);color:var(--ink);cursor:pointer;overflow:hidden;
+}
+/* The nub on the end of a battery symbol. */
+.batt-pill::after{
+  content:'';position:absolute;right:-4px;top:50%;transform:translateY(-50%);
+  width:3px;height:9px;border-radius:0 2px 2px 0;background:var(--ink-3);
+}
+.batt-pill-fill{
+  position:absolute;left:0;top:0;bottom:0;width:0;
+  background:var(--ok);opacity:.5;transition:width .5s ease, background .3s;
+}
+.batt-pill-fill.mid{background:var(--warn)}
+.batt-pill-fill.low{background:var(--danger)}
+.batt-pill.low{border-color:var(--danger)}
+.batt-pill.low::after{background:var(--danger)}
+.batt-pill-num{
+  position:relative;font-family:var(--mono);font-size:12.5px;font-weight:700;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em;
+}
+.batt-pill-bolt{position:relative;width:10px;height:10px;color:var(--ok);flex:none}
+.batt-pill.charging{border-color:var(--ok)}
+.batt-pill.charging::after{background:var(--ok)}
 
 /* ---------- zona de continut ---------- */
 .content{flex:1 1 auto;overflow:hidden;position:relative}
@@ -585,6 +625,10 @@ body.is-recording #link-text{display:none}
 .coach-title{font-size:17px;font-weight:700;color:var(--ink);margin-bottom:6px}
 .coach-body{font-size:13.5px;line-height:1.6;color:var(--ink-2)}
 .coach-body b{color:var(--ink);font-weight:600}
+.coach-img{
+  display:block;width:100%;max-width:190px;margin:13px auto 2px;
+  border-radius:10px;border:1px solid var(--line);
+}
 .coach-actions{display:flex;align-items:center;gap:9px;margin-top:15px}
 .coach-actions .btn{flex:1;min-height:40px}
 .coach-skip{
@@ -599,6 +643,34 @@ body.is-recording #link-text{display:none}
   #coach-ring{animation:none}
   .coach-card{transition:none}
 }
+
+/* ---------- battery card ---------- */
+.batt-card{padding:15px 16px 16px}
+.batt-top{display:flex;align-items:baseline;gap:10px}
+.batt-pct{
+  font-family:var(--mono);font-size:30px;font-weight:700;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:var(--ink);
+}
+.batt-state{
+  font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;
+  color:var(--ok);
+}
+.batt-bar{
+  height:10px;border-radius:5px;background:var(--surface-3);
+  overflow:hidden;margin:11px 0 9px;
+}
+.batt-bar-fill{
+  height:100%;width:0;border-radius:5px;background:var(--ok);
+  transition:width .4s ease, background .3s;
+}
+.batt-bar-fill.mid{background:var(--warn)}
+.batt-bar-fill.low{background:var(--danger)}
+.batt-bar-fill.charging{
+  background:linear-gradient(90deg,var(--ok),#7BE8B4,var(--ok));
+  background-size:200% 100%;animation:battFlow 2s linear infinite;
+}
+@keyframes battFlow{from{background-position:0 0}to{background-position:200% 0}}
+.batt-left{font-size:12.5px;line-height:1.5;color:var(--ink-3)}
 
 /* ---------- starea firmware-ului ---------- */
 .fw-state{padding:12px 16px;border-bottom:1px solid var(--line-soft)}
@@ -851,10 +923,20 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
 <!-- ====================== ANTET ====================== -->
 <header>
   <div class="brand">
-    <img src="logo.svg" alt="GLYPH">
+    <!-- The logo is the connect control. It carries a ring that turns green
+         when linked, so the state is readable without a word of text, and the
+         wide bar that used to sit on the right is gone. -->
+    <button class="logo-btn" id="btn-connect" aria-label="Connect or disconnect">
+      <img src="logo.svg" alt="GLYPH">
+      <span class="logo-ring"></span>
+      <svg class="logo-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.6" stroke-linecap="round">
+        <path d="M12 3v9"/><path d="M7.5 6.5a7 7 0 1 0 9 0"/>
+      </svg>
+    </button>
     <div>
       <div class="brand-name">GLYPH</div>
-      <div class="link-state"><span class="dot" id="status-dot"></span><span id="link-text">Disconnected</span>
+      <div class="link-state"><span id="link-text">Disconnected</span>
         <span class="sec-badge" id="sec-badge">PUBLIC</span>
         <button class="rec-chip hidden" id="rec-chip" onclick="switchTab('tab-map')"
                 aria-label="Recording - open the map"><span class="rec-dot"></span><span id="rec-chip-text">REC</span></button>
@@ -866,7 +948,16 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
       <circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a2.8 2.8 0 1 1 3.6 2.7c-.6.2-.8.7-.8 1.3v.3"/><path d="M12 17h.01"/>
     </svg>
   </button>
-  <button class="btn-connect" id="btn-connect">CONNECT</button>
+  <!-- Battery, in the shape a phone uses: a capsule that fills up, the number
+       inside it, a bolt while charging. -->
+  <button class="batt-pill" id="batt-pill" onclick="switchTab('tab-status')"
+          aria-label="Battery">
+    <span class="batt-pill-fill" id="batt-pill-fill"></span>
+    <svg class="batt-pill-bolt hidden" id="batt-pill-bolt" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12z"/>
+    </svg>
+    <span class="batt-pill-num" id="batt-pill-num">--</span>
+  </button>
 </header>
 
 <div class="content">
@@ -887,6 +978,18 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
       <div class="hero-batt-wrap">
         <div class="hero-batt" id="val-batt">--%</div>
         <div class="batt-eta" id="batt-eta"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">Battery</div>
+      <div class="batt-card">
+        <div class="batt-top">
+          <span class="batt-pct" id="batt-pct">--%</span>
+          <span class="batt-state" id="batt-state"></span>
+        </div>
+        <div class="batt-bar"><div class="batt-bar-fill" id="batt-bar-fill"></div></div>
+        <div class="batt-left" id="batt-left">Connect to GLYPH</div>
       </div>
     </div>
 
@@ -1313,6 +1416,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     <div class="coach-step" id="coach-step"></div>
     <div class="coach-title" id="coach-title"></div>
     <div class="coach-body" id="coach-body"></div>
+    <img class="coach-img hidden" id="coach-img" alt="The A, B and C buttons on the device">
     <div class="coach-actions">
       <button class="coach-skip" onclick="closeGuide()">Skip</button>
       <button class="btn" id="coach-back" onclick="guideBack()">BACK</button>
@@ -1397,6 +1501,8 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     let isSecureMode = false;
     let currentTeam = 'ALPHA';
     let lastOutgoingId = null;
+    let isCharging = false;
+    let lastBatteryPct = null;
     let sdPresent = true;
     const BATTERY_ALERT_PCT = 20;
     let recentTxMessages = []; 
@@ -1421,12 +1527,17 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
 
     document.getElementById('btn-connect').addEventListener('click', async () => {
         if (isConnected) {
-            // Deconectare ceruta de om: nu incercam sa ne legam la loc. Fara
-            // steagul asta, butonul DISCONNECT ar fi urmat imediat de o
-            // reconectare automata, ceea ce e exact pe dos fata de intentie.
-            userDisconnected = true;
-            stopReconnect();
-            if (bleDevice) bleDevice.gatt.disconnect();
+            // The logo sits under the thumb, so a stray tap must not drop the
+            // link mid-recording. Disconnecting is deliberate; connecting is not
+            // worth a question.
+            showConfirm('Disconnect', 'Stop talking to GLYPH?'
+                + (activeSession ? '<br><br>The device keeps recording on its own card, '
+                                 + 'and the track is completed when you reconnect.' : ''),
+                () => {
+                    userDisconnected = true;
+                    stopReconnect();
+                    if (bleDevice) bleDevice.gatt.disconnect();
+                });
             return;
         }
 
@@ -1470,11 +1581,10 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     function onConnected() {
         isConnected = true;
         stopReconnect();
-        document.getElementById('status-dot').classList.add('on');
         document.getElementById('link-text').innerText = 'Connected';
         const btn = document.getElementById('btn-connect');
-        btn.innerText = "DISCONNECT";
-        btn.classList.add('active');
+        btn.classList.add('linked');
+        btn.classList.remove('busy');
 
         const hero = document.getElementById('hero');
         hero.classList.add('linked');
@@ -1513,6 +1623,8 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         reconnectStep = 0;
         const el = document.getElementById('link-text');
         if (el) el.classList.remove('retrying');
+        const lb = document.getElementById('btn-connect');
+        if (lb) lb.classList.remove('busy');
     }
 
     function scheduleReconnect() {
@@ -1522,6 +1634,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         document.getElementById('link-text').innerText =
             'Reconnecting… (' + Math.round(delay / 1000) + 's)';
         document.getElementById('link-text').classList.add('retrying');
+        document.getElementById('btn-connect').classList.add('busy');
 
         reconnectTimer = setTimeout(async () => {
             reconnectTimer = null;
@@ -1536,6 +1649,9 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
                 stopReconnect();
                 onConnected();
                 showToast('Reconnected to GLYPH', 'success');
+                // The phone recorded nothing while the link was down. The
+                // device's card did, so ask for its copy and close the hole.
+                if (activeSession) setTimeout(requestGapFill, 1200);
             } catch (e) {
                 scheduleReconnect();
             }
@@ -1549,11 +1665,9 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         txChar = null;
         rxChar = null;
         bleServer = null;
-        document.getElementById('status-dot').classList.remove('on');
         document.getElementById('link-text').innerText = 'Disconnected';
         const btn = document.getElementById('btn-connect');
-        btn.innerText = "CONNECT";
-        btn.classList.remove('active');
+        btn.classList.remove('linked', 'busy');
         if (wakeLock) { wakeLock.release(); wakeLock = null; }
 
         const hero = document.getElementById('hero');
@@ -1577,6 +1691,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         setControlsEnabled(false);
         clearTeammates();
         deviceVersion = null;
+        uploadChunkBytes = UPLOAD_CHUNK_SAFE;
         renderFirmwareState();
         logEvent('link', 'disconnected');
 
@@ -1661,8 +1776,13 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
             // decizi daca mai pornesti radioul.
             batt.classList.toggle('low', !isNaN(pct) && pct <= 20);
             if (!isNaN(pct)) {
-                alertOnce('batt', pct <= BATTERY_ALERT_PCT, 'GLYPH battery at ' + pct + '%');
+                lastBatteryPct = pct;
+                // No low-battery alert while charging: it is going up, and a
+                // warning nobody can act on is noise.
+                alertOnce('batt', pct <= BATTERY_ALERT_PCT && !isCharging,
+                          'GLYPH battery at ' + pct + '%');
                 feedBattery(pct);
+                renderBatteryCard();
             }
             return;
         }
@@ -1723,6 +1843,9 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
             return;
         }
         if (val.startsWith("SYS_PWR:")) { markPowerMode(parseInt(val.split(":")[1], 10)); return; }
+        if (val.startsWith("SYS_BUF:")) { setDeviceChunkSize(parseInt(val.substring(8), 10)); return; }
+        if (val.startsWith("SYS_RECFILE:")) { noteRecordingFile(val.substring(12).trim()); return; }
+        if (val.startsWith("SYS_CHG:")) { setCharging(val.substring(8).trim() === '1'); return; }
         if (val.startsWith("SYS_VER:")) {
             deviceVersion = val.substring(8).trim();
             renderFirmwareState();
@@ -2982,6 +3105,12 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         dl = null;
         document.getElementById('dl-bar').classList.add('hidden');
 
+        if (action === 'gapfill') {
+            adoptDeviceTrack(text);
+            logEvent('file', 'gap filled from ' + name);
+            return;
+        }
+
         if (action === 'map') {
             switchTab('tab-map');
             setTimeout(() => parseAndDrawKML(text), 350);
@@ -3172,24 +3301,126 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         renderBatteryEstimate(pct);
     }
 
+    // Hours until empty. Null until there is enough of a slope to mean anything.
     function batteryHoursLeft(pct) {
+        const rate = batteryRatePerHour();
+        if (rate === null || rate >= 0) return null;   // flat or rising
+        return pct / -rate;
+    }
+
+    // Hours until full, from how fast the charge estimate is climbing. The last
+    // stretch of a charge is constant-voltage, where the number barely moves,
+    // so this reads long near the end; it is an estimate and says so.
+    function batteryHoursToFull(pct) {
+        const rate = batteryRatePerHour();
+        if (rate === null || rate <= 0) return null;
+        if (pct >= 99) return 0;
+        return (100 - pct) / rate;
+    }
+
+    // Percentage points per hour: negative while draining, positive charging.
+    function batteryRatePerHour() {
         if (battSamples.length < 2) return null;
         const a = battSamples[0], b = battSamples[battSamples.length - 1];
         const hours = (b.t - a.t) / 3600000;
-        // Sub 10 minute de observatie, panta e zgomot, nu tendinta.
+        // Under ten minutes of observation the slope is noise, not a trend.
         if (hours < 0.17) return null;
-        const drop = a.pct - b.pct;
-        if (drop <= 0) return null;            // se incarca, sau nu s-a miscat
-        return pct / (drop / hours);
+        const delta = b.pct - a.pct;
+        if (delta === 0) return null;
+        return delta / hours;
     }
 
     function renderBatteryEstimate(pct) {
         const el = document.getElementById('batt-eta');
-        if (!el) return;
-        const h = batteryHoursLeft(pct);
-        if (h === null) { el.innerText = ''; return; }
-        el.innerText = h < 1 ? '~' + Math.round(h * 60) + ' min left'
-                     : '~' + (h < 10 ? h.toFixed(1) : Math.round(h)) + ' h left';
+        if (el) {
+            if (isCharging) {
+                const f = batteryHoursToFull(pct);
+                el.innerText = f === null ? 'charging' : fmtHours(f) + ' to full';
+            } else {
+                const h = batteryHoursLeft(pct);
+                el.innerText = h === null ? '' : fmtHours(h) + ' left';
+            }
+        }
+        renderBattPill(pct);
+    }
+
+    // The capsule in the header: fill, number, bolt while charging.
+    function renderBattPill(pct) {
+        const pill = document.getElementById('batt-pill');
+        if (!pill) return;
+        const fill = document.getElementById('batt-pill-fill');
+        const num  = document.getElementById('batt-pill-num');
+        const bolt = document.getElementById('batt-pill-bolt');
+
+        if (pct === null || pct === undefined || isNaN(pct)) {
+            fill.style.width = '0%';
+            num.innerText = '--';
+            bolt.classList.add('hidden');
+            pill.className = 'batt-pill';
+            return;
+        }
+        fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+        fill.className = 'batt-pill-fill'
+            + (isCharging ? '' : (pct <= 20 ? ' low' : (pct <= 45 ? ' mid' : '')));
+        num.innerText = pct;
+        bolt.classList.toggle('hidden', !isCharging);
+        pill.className = 'batt-pill'
+            + (isCharging ? ' charging' : (pct <= 20 ? ' low' : ''));
+    }
+
+    function fmtHours(h) {
+        return h < 1 ? '~' + Math.round(h * 60) + ' min'
+                     : '~' + (h < 10 ? h.toFixed(1) : Math.round(h)) + ' h';
+    }
+
+    function setCharging(on) {
+        if (on === isCharging) return;
+        isCharging = on;
+        // A charger resets the discharge slope: samples taken while plugged in
+        // say nothing about how fast the pack drains.
+        battSamples.length = 0;
+        if (on) alertOnce('batt', false, '');
+        renderBatteryCard();
+        if (lastBatteryPct !== null) renderBatteryEstimate(lastBatteryPct);
+    }
+
+    // The battery card on Status: a bar, the percentage, and hours left worked
+    // out from the real drop rate rather than a fixed table.
+    function renderBatteryCard() {
+        const bar = document.getElementById('batt-bar-fill');
+        if (!bar) return;
+        const pct = lastBatteryPct;
+
+        if (pct === null) {
+            renderBattPill(null);
+            bar.style.width = '0%';
+            bar.className = 'batt-bar-fill';
+            document.getElementById('batt-pct').innerText = '--%';
+            document.getElementById('batt-left').innerText = 'Connect to GLYPH';
+            document.getElementById('batt-state').innerText = '';
+            return;
+        }
+
+        bar.style.width = Math.max(2, Math.min(100, pct)) + '%';
+        bar.className = 'batt-bar-fill'
+            + (isCharging ? ' charging' : (pct <= 20 ? ' low' : (pct <= 45 ? ' mid' : '')));
+        document.getElementById('batt-pct').innerText = pct + '%';
+        document.getElementById('batt-state').innerText = isCharging ? 'CHARGING' : '';
+
+        let left;
+        if (isCharging) {
+            const f = batteryHoursToFull(pct);
+            left = f === null
+                ? 'Charging — working out how fast'
+                : (f < 0.05 ? 'Almost full'
+                            : fmtHours(f) + ' to full, roughly — the last stretch is slower');
+        } else {
+            const h = batteryHoursLeft(pct);
+            left = h === null ? 'Estimating how fast it drains…'
+                              : fmtHours(h) + ' left at the current rate';
+        }
+        document.getElementById('batt-left').innerText = left;
+        renderBattPill(pct);
     }
 
     // =====================================================================
@@ -3234,11 +3465,22 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     // Fiecare pas arata catre un buton adevarat din aplicatie. `sel` il gaseste,
     // `tab` spune pe ce ecran trebuie sa fim ca sa fie vizibil, `pad` largeste
     // gaura de lumina cand elementul e mic, `round` o face cerc.
+    // The three buttons on the device, so the guide can name them instead of
+    // assuming the reader already knows which is which.
+    const BUTTONS_IMG = 'data:image/jpeg;base64,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';
+
     const GUIDE_KEY = 'glyph_guide_seen_v2';
     const GUIDE = [
-        { sel: '#btn-connect', t: 'Start here',
-          b: 'Pairs the phone with GLYPH over Bluetooth. Everything else in the app '
-           + 'stays greyed out until this is done.' },
+        { sel: '#btn-connect', round: true, t: 'Tap the logo to connect', img: BUTTONS_IMG,
+          b: 'The logo is the connect button. Its ring turns green once the phone is '
+           + 'talking to GLYPH. Everything else in the app stays greyed out until then.'
+           + '<br><br>'
+           + 'On the device itself there are three buttons, <b>A</b>, <b>B</b> and '
+           + '<b>C</b>, top to bottom — the same three you will see under Control.' },
+        { sel: '#batt-pill', pad: 5, t: 'Battery',
+          b: 'The capsule fills up as the device charges and empties as it drains. A '
+           + 'bolt means a cable is in. <b>Tap it</b> for the full reading and an '
+           + 'estimate of how long it has left.' },
         { sel: '#sec-badge', pad: 6, t: 'Public or encrypted',
           b: 'Shows <b>PUBLIC</b> when anyone on the frequency can read you, or a lock '
            + 'with your team name when messages go out encrypted. Visible from every '
@@ -3275,7 +3517,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         { sel: '.nav-btn:nth-child(5)', t: 'Control', tab: 'tab-control',
           b: 'The device, driven from your phone: team channel, power mode, and the '
            + 'three buttons.' },
-        { sel: '.btn-grid', tab: 'tab-control', t: 'A, B and C',
+        { sel: '.btn-grid', tab: 'tab-control', t: 'A, B and C', img: BUTTONS_IMG,
           b: 'The same three buttons that are on the device. A short tap sends a press; '
            + '<b>hold for about a second</b> and it sends a long press instead — the phone '
            + 'vibrates when it switches.' },
@@ -3308,6 +3550,10 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
             'STEP ' + (guideStep + 1) + ' / ' + GUIDE.length;
         document.getElementById('coach-title').innerText = g.t;
         document.getElementById('coach-body').innerHTML = g.b;
+
+        const fig = document.getElementById('coach-img');
+        if (g.img) { fig.src = g.img; fig.classList.remove('hidden'); }
+        else { fig.classList.add('hidden'); fig.removeAttribute('src'); }
         document.getElementById('coach-next').innerText =
             guideStep === GUIDE.length - 1 ? 'DONE' : 'NEXT';
         document.getElementById('coach-back').style.visibility = guideStep ? 'visible' : 'hidden';
@@ -3444,10 +3690,20 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     // si fisierul ar ajunge corupt fara niciun semn.
     // =====================================================================
 
-    // Trebuie sa fie EXACT cat SD_UPLOAD_CHUNK_BYTES din glyph_config.h: 168 de
-    // octeti bruti devin 224 base64, plus prefix 233 - incape intr-o singura
-    // scriere BLE la MTU 247 si in sertarul de receptie de 256 al aparatului.
-    const UPLOAD_CHUNK_BYTES = 168;
+    // Cat de mare e o bucata de fisier trimisa aparatului, in octeti bruti.
+    //
+    // NU e o constanta: aparatul o anunta la conectare prin SYS_BUF, fiindca
+    // depinde de marimea sertarului lui de receptie. Valoarea de aici e cea
+    // prudenta, care merge si cu firmware mai vechi. Am invatat asta pe pielea
+    // noastra: aplicatia noua trimitea bucati de 168 de octeti catre un aparat
+    // cu sertar de 192, comanda venea taiata si base64 esua cu "DECODE".
+    const UPLOAD_CHUNK_SAFE = 120;
+    let uploadChunkBytes = UPLOAD_CHUNK_SAFE;
+
+    function setDeviceChunkSize(n) {
+        if (!isFinite(n) || n < 32 || n > 512) return;
+        uploadChunkBytes = n;
+    }
     let up = null;
 
     function utf8ToBytes(str) { return new TextEncoder().encode(str); }
@@ -3499,7 +3755,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
             armUploadTimeout();
             return;
         }
-        const slice = up.bytes.slice(up.sent, up.sent + UPLOAD_CHUNK_BYTES);
+        const slice = up.bytes.slice(up.sent, up.sent + uploadChunkBytes);
         up.sent += slice.length;
         sendCmd('CMD_PUTD:' + bytesToB64(slice));
         document.getElementById('up-fill').style.width =
@@ -3750,7 +4006,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     function sendNextOtaChunk() {
         if (!ota) return;
         if (ota.sent >= ota.bytes.length) { sendCmd('CMD_OTAEND'); armOtaTimeout(); return; }
-        const slice = ota.bytes.slice(ota.sent, ota.sent + UPLOAD_CHUNK_BYTES);
+        const slice = ota.bytes.slice(ota.sent, ota.sent + uploadChunkBytes);
         ota.sent += slice.length;
         sendCmd('CMD_OTAD:' + bytesToB64(slice));
 
@@ -4027,6 +4283,83 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     }
 
     // =====================================================================
+    // FILLING THE GAP AFTER A RECONNECT
+    //
+    // While the link is down the phone records nothing, so its copy of the
+    // track has a hole that would be drawn as a straight line across it. The
+    // device kept writing to its card the whole time, so its file is complete.
+    // On reconnect the phone fetches that file and adopts it as the session.
+    // =====================================================================
+
+    let recordingFile = null;    // name of the file the device is writing
+    let gapFillPending = false;
+
+    function noteRecordingFile(name) {
+        recordingFile = name && name.length ? name : null;
+        if (gapFillPending) { gapFillPending = false; fillTrackGap(); }
+    }
+
+    // Called after the link comes back while a session is still open.
+    function requestGapFill() {
+        if (!activeSession) return;
+        // Ask for the file name first; the fetch starts when the answer lands.
+        gapFillPending = true;
+        sendCmd('CMD_STATE');
+        setTimeout(() => {
+            if (gapFillPending) {
+                gapFillPending = false;
+                showToast('Could not ask the device for the missing part', 'warning');
+            }
+        }, 9000);
+    }
+
+    function fillTrackGap() {
+        if (!activeSession || !recordingFile) return;
+        if (dl) return;                       // a download is already running
+        showToast('Fetching the part recorded while offline…');
+        dl = { name: recordingFile, action: 'gapfill', chunks: [], total: 0, got: 0 };
+        document.getElementById('dl-bar').classList.remove('hidden');
+        document.getElementById('dl-name').innerText = recordingFile;
+        document.getElementById('dl-fill').style.width = '0%';
+        sendCmd('CMD_GET:' + recordingFile);
+    }
+
+    // The device's file is the authoritative track: it has no hole. Timestamps
+    // are not in the KML, so they are spread evenly between the session start
+    // and now, which is enough for distance and for drawing.
+    function adoptDeviceTrack(kmlText) {
+        const pts = [];
+        const doc = new DOMParser().parseFromString(kmlText, 'text/xml');
+        const nodes = doc.getElementsByTagName('coordinates');
+        for (const node of nodes) {
+            for (const tok of (node.textContent || '').trim().split(/\s+/)) {
+                const p = tok.split(',');
+                if (p.length < 2) continue;
+                const lon = parseFloat(p[0]), lat = parseFloat(p[1]);
+                if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) continue;
+                if (Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+                pts.push([lat, lon]);
+            }
+        }
+        if (pts.length < 2) { showToast('The device track was empty', 'warning'); return; }
+
+        const before = activeSession.points.length;
+        const t0 = activeSession.startedAt, span = Math.max(1, Date.now() - t0);
+        activeSession.points = pts.map((p, i) =>
+            [p[0], p[1], t0 + Math.round(span * i / (pts.length - 1))]);
+
+        // Redraw from scratch: the live line still has the straight jump in it.
+        clearLiveTrack();
+        for (const p of activeSession.points) addLiveTrackPoint(p[0], p[1]);
+        dbPut('sessions', activeSession).catch(() => {});
+        renderRecBanner();
+
+        showToast('Track completed from the device — '
+                  + before + ' points became ' + pts.length, 'success');
+        logEvent('gapfill', before + ' -> ' + pts.length);
+    }
+
+    // =====================================================================
     // PORNIRE
     // =====================================================================
     (function initGlyphExtras() {
@@ -4038,6 +4371,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         setInterval(renderRecBanner, 30000);
         renderQuickBar();
         renderRange();
+        renderBatteryCard();
         loadSiteFirmwareInfo();
         restoreChat().catch(() => {});
         maybeShowGuide();
