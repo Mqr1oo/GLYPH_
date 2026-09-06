@@ -146,7 +146,7 @@ body.is-recording #link-text{display:none}
   display:inline-flex;align-items:center;justify-content:center;gap:3px;
   width:56px;height:26px;padding:0 7px;
   border-radius:999px;border:1.5px solid var(--ink-3);
-  background:var(--surface-2);color:var(--ink);cursor:pointer;overflow:hidden;
+  background:var(--surface-2);color:var(--ink);overflow:hidden;
 }
 /* The nub on the end of a battery symbol. */
 .batt-pill::after{
@@ -186,28 +186,6 @@ body.is-recording #link-text{display:none}
    sau era tuns de overflow:hidden (lista de trasee), in loc ca pagina sa
    deruleze. flex:0 0 auto le lasa inaltimea lor reala si derularea revine. */
 .tab-pane > *{flex:0 0 auto}
-
-/* ---------- starea conexiunii, sus pe Status ---------- */
-.hero{
-  background:linear-gradient(160deg,var(--surface-2),var(--surface));
-  border:1px solid var(--line);border-radius:var(--r-lg);
-  padding:18px;display:flex;align-items:center;gap:16px;
-}
-.hero-icon{
-  width:44px;height:44px;border-radius:12px;flex:0 0 auto;
-  display:grid;place-items:center;
-  background:var(--surface-3);color:var(--ink-3);
-}
-.hero.linked .hero-icon{background:var(--ok-dim);color:var(--ok)}
-.hero-icon svg{width:22px;height:22px}
-.hero-text{min-width:0;flex:1}
-.hero-title{font-weight:600;font-size:16px}
-.hero-sub{color:var(--ink-3);font-size:13px;margin-top:2px}
-.hero-batt{
-  font-family:var(--mono);font-size:26px;font-weight:700;
-  font-variant-numeric:tabular-nums;letter-spacing:-.02em;
-}
-.hero-batt.low{color:var(--danger)}
 
 /* ---------- carduri ---------- */
 .card{
@@ -572,10 +550,6 @@ body.is-recording #link-text{display:none}
    si nu ca a renuntat. */
 #link-text.retrying{color:var(--warn);animation:recPulse 1.4s ease-in-out infinite}
 
-/* ---------- estimarea de baterie ---------- */
-.hero-batt-wrap{margin-left:auto;text-align:right;flex:none}
-.batt-eta{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:2px}
-
 /* ---------- starea de livrare a mesajului ---------- */
 .msg-status{
   display:block;margin-top:4px;
@@ -643,34 +617,6 @@ body.is-recording #link-text{display:none}
   #coach-ring{animation:none}
   .coach-card{transition:none}
 }
-
-/* ---------- battery card ---------- */
-.batt-card{padding:15px 16px 16px}
-.batt-top{display:flex;align-items:baseline;gap:10px}
-.batt-pct{
-  font-family:var(--mono);font-size:30px;font-weight:700;
-  font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:var(--ink);
-}
-.batt-state{
-  font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;
-  color:var(--ok);
-}
-.batt-bar{
-  height:10px;border-radius:5px;background:var(--surface-3);
-  overflow:hidden;margin:11px 0 9px;
-}
-.batt-bar-fill{
-  height:100%;width:0;border-radius:5px;background:var(--ok);
-  transition:width .4s ease, background .3s;
-}
-.batt-bar-fill.mid{background:var(--warn)}
-.batt-bar-fill.low{background:var(--danger)}
-.batt-bar-fill.charging{
-  background:linear-gradient(90deg,var(--ok),#7BE8B4,var(--ok));
-  background-size:200% 100%;animation:battFlow 2s linear infinite;
-}
-@keyframes battFlow{from{background-position:0 0}to{background-position:200% 0}}
-.batt-left{font-size:12.5px;line-height:1.5;color:var(--ink-3)}
 
 /* ---------- starea firmware-ului ---------- */
 .fw-state{padding:12px 16px;border-bottom:1px solid var(--line-soft)}
@@ -949,49 +895,22 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     </svg>
   </button>
   <!-- Battery, in the shape a phone uses: a capsule that fills up, the number
-       inside it, a bolt while charging. -->
-  <button class="batt-pill" id="batt-pill" onclick="switchTab('tab-status')"
-          aria-label="Battery">
+       inside it, a bolt while charging. It is the ONLY battery readout in the
+       app: the same number repeated in two cards on Status said nothing more
+       and pushed everything else down the screen. -->
+  <div class="batt-pill" id="batt-pill" role="img" aria-label="Battery">
     <span class="batt-pill-fill" id="batt-pill-fill"></span>
     <svg class="batt-pill-bolt hidden" id="batt-pill-bolt" viewBox="0 0 24 24" fill="currentColor">
       <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12z"/>
     </svg>
     <span class="batt-pill-num" id="batt-pill-num">--</span>
-  </button>
+  </div>
 </header>
 
 <div class="content">
 
   <!-- ---------------- STATUS ---------------- -->
   <div id="tab-status" class="tab-pane active">
-
-    <div class="hero" id="hero">
-      <div class="hero-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M6.5 6.5 17.5 17.5M12 2v20M12 2l5.5 4.5L12 11M12 13l5.5 4.5L12 22"/>
-        </svg>
-      </div>
-      <div class="hero-text">
-        <div class="hero-title" id="hero-title">Not connected</div>
-        <div class="hero-sub" id="hero-sub">Tap CONNECT to pair over Bluetooth</div>
-      </div>
-      <div class="hero-batt-wrap">
-        <div class="hero-batt" id="val-batt">--%</div>
-        <div class="batt-eta" id="batt-eta"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">Battery</div>
-      <div class="batt-card">
-        <div class="batt-top">
-          <span class="batt-pct" id="batt-pct">--%</span>
-          <span class="batt-state" id="batt-state"></span>
-        </div>
-        <div class="batt-bar"><div class="batt-bar-fill" id="batt-bar-fill"></div></div>
-        <div class="batt-left" id="batt-left">Connect to GLYPH</div>
-      </div>
-    </div>
 
     <div class="card">
       <div class="card-head">Device</div>
@@ -1586,11 +1505,6 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         btn.classList.add('linked');
         btn.classList.remove('busy');
 
-        const hero = document.getElementById('hero');
-        hero.classList.add('linked');
-        document.getElementById('hero-title').innerText = 'Device linked';
-        document.getElementById('hero-sub').innerText = 'Live telemetry over Bluetooth';
-
         requestWakeLock();
         setControlsEnabled(true);
         alertOnce('link', false, '');
@@ -1670,14 +1584,8 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         btn.classList.remove('linked', 'busy');
         if (wakeLock) { wakeLock.release(); wakeLock = null; }
 
-        const hero = document.getElementById('hero');
-        hero.classList.remove('linked');
-        document.getElementById('hero-title').innerText = 'Not connected';
-        document.getElementById('hero-sub').innerText = 'Tap CONNECT to pair over Bluetooth';
-
-        const batt = document.getElementById('val-batt');
-        batt.innerText = "--%";
-        batt.classList.remove('low');
+        lastBatteryPct = null;
+        renderBattPill(null);
         document.getElementById('val-time').innerText = "--:--";
         setGpsText('Offline', true);
         document.getElementById('val-sats').innerText = "0";
@@ -1770,19 +1678,13 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         if (val.startsWith("SYS_TIME:")) { document.getElementById('val-time').innerText = val.split("SYS_TIME:")[1]; return; }
         if (val.startsWith("SYS_BATT:")) {
             const pct = parseInt(val.split(":")[1], 10);
-            const batt = document.getElementById('val-batt');
-            batt.innerText = (isNaN(pct) ? '--' : pct) + "%";
-            // Sub 20% coloram cifra: pe teren, procentul e informatia dupa care
-            // decizi daca mai pornesti radioul.
-            batt.classList.toggle('low', !isNaN(pct) && pct <= 20);
             if (!isNaN(pct)) {
                 lastBatteryPct = pct;
                 // No low-battery alert while charging: it is going up, and a
                 // warning nobody can act on is noise.
                 alertOnce('batt', pct <= BATTERY_ALERT_PCT && !isCharging,
                           'GLYPH battery at ' + pct + '%');
-                feedBattery(pct);
-                renderBatteryCard();
+                renderBattPill(pct);
             }
             return;
         }
@@ -1916,13 +1818,13 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         if (val === "SYS_PUT_READY")        { sendNextUploadChunk(); return; }
         if (val.startsWith("SYS_PUT_ACK:")) { sendNextUploadChunk(); return; }
         if (val.startsWith("SYS_PUT_DONE:")) { finishUploadUI(val.substring(13)); return; }
-        if (val.startsWith("SYS_PUT_ERR:"))  { failUpload(val.substring(12)); return; }
+        if (val.startsWith("SYS_PUT_ERR:"))  { failUpload(deviceErrorText(val.substring(12))); return; }
 
         // ---- actualizarea firmware-ului ----
         if (val === "SYS_OTA_READY")        { sendNextOtaChunk(); return; }
         if (val.startsWith("SYS_OTA_ACK:")) { sendNextOtaChunk(); return; }
         if (val === "SYS_OTA_DONE")         { finishOtaUI(); return; }
-        if (val.startsWith("SYS_OTA_ERR:")) { failOta(val.substring(12)); return; }
+        if (val.startsWith("SYS_OTA_ERR:")) { failOta(deviceErrorText(val.substring(12))); return; }
 
         // ---- confirmare venita pe radio de la un coechipier ----
         if (val.startsWith("SYS_ACK:")) {
@@ -2059,12 +1961,77 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         box.scrollTop = box.scrollHeight;
     }
 
-    async function sendCmd(cmd) {
-        if (!txChar) { showAlert("Offline", "Please connect to the device first."); return false; }
-        try {
-            await txChar.writeValue(new TextEncoder().encode(cmd + '\n'));
-            return true;
-        } catch(e) { console.error(e); return false; }
+    // FIX: Web Bluetooth allows exactly ONE GATT operation at a time. A second
+    // writeValue() started before the first settles throws "GATT operation
+    // already in progress", and the old sendCmd swallowed that in a catch, so
+    // the command was simply lost. During a route or a firmware upload that is
+    // one chunk gone: the device stops acknowledging, and all the user ever
+    // saw was "no answer from the device".
+    //
+    // Every command now goes through one queue, in order, and a write that
+    // fails is retried once before it is reported as a failure.
+    let gattQueue = Promise.resolve();
+
+    function bleWrite(bytes) {
+        if (!txChar) return Promise.reject(new Error('not connected'));
+        // writeValue is deprecated; the explicit form is what phones implement.
+        return txChar.writeValueWithResponse
+             ? txChar.writeValueWithResponse(bytes)
+             : txChar.writeValue(bytes);
+    }
+
+    function sendCmd(cmd, opts) {
+        const quiet = opts && opts.quiet;
+        if (!txChar) {
+            if (!quiet) showAlert("Offline", "Please connect to the device first.");
+            return Promise.resolve(false);
+        }
+        const bytes = new TextEncoder().encode(cmd + '\n');
+        const run = gattQueue.then(async () => {
+            try {
+                await bleWrite(bytes);
+                return true;
+            } catch (e) {
+                try {
+                    await new Promise(r => setTimeout(r, 60));
+                    await bleWrite(bytes);
+                    return true;
+                } catch (e2) {
+                    console.error('BLE write failed:', e2);
+                    return false;
+                }
+            }
+        });
+        // The queue itself must never reject, or every later command is dropped.
+        gattQueue = run.then(() => {}, () => {});
+        return run;
+    }
+
+    // What the device answers with in SYS_PUT_ERR / SYS_OTA_ERR, in words.
+    function deviceErrorText(code) {
+        const c = String(code || '').trim().toUpperCase();
+        switch (c) {
+            case 'NO CARD':      return 'there is no memory card in the device';
+            case 'BAD NAME':     return 'the device refused that file name';
+            case 'TOO BIG':      return 'the file is larger than the device accepts (256 KB)';
+            case 'CANNOT WRITE': return 'the card could not be written to (locked or full)';
+            case 'DECODE':       return 'a chunk arrived damaged';
+            case 'WRITE':        return 'the card stopped accepting data';
+            case 'SHORT':        return 'part of the file never arrived';
+            case 'OVERRUN':      return 'the device received more than it expected';
+            case 'NOT STARTED':  return 'the device was not expecting a transfer';
+            case 'TOO SMALL':    return 'that file is too small to be firmware';
+            case 'NO OTA PARTITION':
+                return 'this device has no second app partition, so it cannot be '
+                     + 'updated over Bluetooth at all. Its firmware was built with a '
+                     + 'no-OTA partition scheme; it has to be reflashed once over USB '
+                     + 'with an OTA one (Arduino IDE: Tools > Partition Scheme).';
+            case 'NO ROOM':
+                return 'the image does not fit the update partition on the device';
+            case 'INVALID IMAGE':
+                return 'the device rejected the image as not valid firmware';
+            default:             return c.toLowerCase() || 'unknown reason';
+        }
     }
 
     // FIX: sendCmd este async, deci intoarce un Promise, care e MEREU truthy.
@@ -2656,9 +2623,13 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     }
 
     /* ---------- KML ---------- */
-    function getKMLString() {
-        if (routePoints.length < 2) return null;
-        const coords = routePoints.map(p => p.lng + ',' + p.lat + ',0').join(' ');
+    function getKMLString(points) {
+        const pts = points || routePoints;
+        if (pts.length < 2) return null;
+        // Six decimals is about 10 cm on the ground. The digits past that are
+        // routing-engine noise, and they were tripling the size of a file the
+        // device has to swallow 168 bytes at a time.
+        const coords = pts.map(p => p.lng.toFixed(6) + ',' + p.lat.toFixed(6) + ',0').join(' ');
         const name = (document.getElementById('filename').value.trim() || 'GLYPH Route')
             .replace(/[<>&]/g, '');
         return '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -3284,65 +3255,13 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     }
 
     // =====================================================================
-    // CAT MAI TINE BATERIA
+    // BATERIA
     //
-    // Din procentele primite in timp, nu dintr-o tabela fixa: consumul difera
-    // mult intre NORMAL si ECO, si intre iarna si vara. Panta se calculeaza pe
-    // ultima ora, ca o schimbare de mod sa se vada repede in estimare.
+    // Un singur loc in aplicatie arata bateria: capsula din antet. Cardurile
+    // de pe Status repetau acelasi numar si o estimare de ore care, in
+    // practica, era ori goala ("se calculeaza..."), ori gresita dupa o
+    // schimbare de mod - deci ocupau ecranul degeaba.
     // =====================================================================
-
-    const battSamples = [];            // { t, pct }
-    const BATT_WINDOW_MS = 60 * 60 * 1000;
-
-    function feedBattery(pct) {
-        const now = Date.now();
-        battSamples.push({ t: now, pct });
-        while (battSamples.length && now - battSamples[0].t > BATT_WINDOW_MS) battSamples.shift();
-        renderBatteryEstimate(pct);
-    }
-
-    // Hours until empty. Null until there is enough of a slope to mean anything.
-    function batteryHoursLeft(pct) {
-        const rate = batteryRatePerHour();
-        if (rate === null || rate >= 0) return null;   // flat or rising
-        return pct / -rate;
-    }
-
-    // Hours until full, from how fast the charge estimate is climbing. The last
-    // stretch of a charge is constant-voltage, where the number barely moves,
-    // so this reads long near the end; it is an estimate and says so.
-    function batteryHoursToFull(pct) {
-        const rate = batteryRatePerHour();
-        if (rate === null || rate <= 0) return null;
-        if (pct >= 99) return 0;
-        return (100 - pct) / rate;
-    }
-
-    // Percentage points per hour: negative while draining, positive charging.
-    function batteryRatePerHour() {
-        if (battSamples.length < 2) return null;
-        const a = battSamples[0], b = battSamples[battSamples.length - 1];
-        const hours = (b.t - a.t) / 3600000;
-        // Under ten minutes of observation the slope is noise, not a trend.
-        if (hours < 0.17) return null;
-        const delta = b.pct - a.pct;
-        if (delta === 0) return null;
-        return delta / hours;
-    }
-
-    function renderBatteryEstimate(pct) {
-        const el = document.getElementById('batt-eta');
-        if (el) {
-            if (isCharging) {
-                const f = batteryHoursToFull(pct);
-                el.innerText = f === null ? 'charging' : fmtHours(f) + ' to full';
-            } else {
-                const h = batteryHoursLeft(pct);
-                el.innerText = h === null ? '' : fmtHours(h) + ' left';
-            }
-        }
-        renderBattPill(pct);
-    }
 
     // The capsule in the header: fill, number, bolt while charging.
     function renderBattPill(pct) {
@@ -3368,59 +3287,11 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
             + (isCharging ? ' charging' : (pct <= 20 ? ' low' : ''));
     }
 
-    function fmtHours(h) {
-        return h < 1 ? '~' + Math.round(h * 60) + ' min'
-                     : '~' + (h < 10 ? h.toFixed(1) : Math.round(h)) + ' h';
-    }
-
     function setCharging(on) {
         if (on === isCharging) return;
         isCharging = on;
-        // A charger resets the discharge slope: samples taken while plugged in
-        // say nothing about how fast the pack drains.
-        battSamples.length = 0;
         if (on) alertOnce('batt', false, '');
-        renderBatteryCard();
-        if (lastBatteryPct !== null) renderBatteryEstimate(lastBatteryPct);
-    }
-
-    // The battery card on Status: a bar, the percentage, and hours left worked
-    // out from the real drop rate rather than a fixed table.
-    function renderBatteryCard() {
-        const bar = document.getElementById('batt-bar-fill');
-        if (!bar) return;
-        const pct = lastBatteryPct;
-
-        if (pct === null) {
-            renderBattPill(null);
-            bar.style.width = '0%';
-            bar.className = 'batt-bar-fill';
-            document.getElementById('batt-pct').innerText = '--%';
-            document.getElementById('batt-left').innerText = 'Connect to GLYPH';
-            document.getElementById('batt-state').innerText = '';
-            return;
-        }
-
-        bar.style.width = Math.max(2, Math.min(100, pct)) + '%';
-        bar.className = 'batt-bar-fill'
-            + (isCharging ? ' charging' : (pct <= 20 ? ' low' : (pct <= 45 ? ' mid' : '')));
-        document.getElementById('batt-pct').innerText = pct + '%';
-        document.getElementById('batt-state').innerText = isCharging ? 'CHARGING' : '';
-
-        let left;
-        if (isCharging) {
-            const f = batteryHoursToFull(pct);
-            left = f === null
-                ? 'Charging — working out how fast'
-                : (f < 0.05 ? 'Almost full'
-                            : fmtHours(f) + ' to full, roughly — the last stretch is slower');
-        } else {
-            const h = batteryHoursLeft(pct);
-            left = h === null ? 'Estimating how fast it drains…'
-                              : fmtHours(h) + ' left at the current rate';
-        }
-        document.getElementById('batt-left').innerText = left;
-        renderBattPill(pct);
+        renderBattPill(lastBatteryPct);
     }
 
     // =====================================================================
@@ -3479,8 +3350,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
            + '<b>C</b>, top to bottom — the same three you will see under Control.' },
         { sel: '#batt-pill', pad: 5, t: 'Battery',
           b: 'The capsule fills up as the device charges and empties as it drains. A '
-           + 'bolt means a cable is in. <b>Tap it</b> for the full reading and an '
-           + 'estimate of how long it has left.' },
+           + 'bolt means a cable is in. It turns red under 20%.' },
         { sel: '#sec-badge', pad: 6, t: 'Public or encrypted',
           b: 'Shows <b>PUBLIC</b> when anyone on the frequency can read you, or a lock '
            + 'with your team name when messages go out encrypted. Visible from every '
@@ -3489,9 +3359,9 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
           b: 'This appears only while GLYPH is recording, and counts the points as they '
            + 'come in. <b>Tap it</b> to jump straight to the map and watch the track draw.' },
         { sel: '.nav-btn:nth-child(1)', t: 'Status',
-          b: 'What the device reports right now: battery with an estimate of hours left, '
-           + 'time, position, satellites, temperature — and whether any part of the '
-           + 'hardware has stopped answering.' },
+          b: 'What the device reports right now: time, position, satellites, '
+           + 'temperature — and whether any part of the hardware has stopped '
+           + 'answering.' },
         { sel: '.nav-btn:nth-child(2)', t: 'Comms', tab: 'tab-comms',
           b: 'Messages over LoRa. A sent message says <b>sent on air</b> only once the '
            + 'device confirms the radio transmission — not merely that your phone '
@@ -3700,8 +3570,12 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     const UPLOAD_CHUNK_SAFE = 120;
     let uploadChunkBytes = UPLOAD_CHUNK_SAFE;
 
+    // The device works this out from the MTU it actually negotiated, which on
+    // iOS settles at 185 and on some Android phones never leaves 23. A small
+    // value is slow but correct; refusing it, as this did below 32, left the
+    // app sending chunks the device could not receive whole.
     function setDeviceChunkSize(n) {
-        if (!isFinite(n) || n < 32 || n > 512) return;
+        if (!isFinite(n) || n < 8 || n > 512) return;
         uploadChunkBytes = n;
     }
     let up = null;
@@ -3714,11 +3588,31 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         return btoa(bin);
     }
 
-    function sendRouteToDevice() {
+    // The device keeps MAX_KML_CACHE_POINTS (600) points of an overlay and its
+    // card refuses a file over SD_UPLOAD_MAX_BYTES (256 KB). A route computed
+    // by OSRM comes back at full precision - thousands of points, and past
+    // 250 KB on a long leg - so the upload either died with TOO BIG or crawled
+    // for many minutes and hit the timeout. What leaves the phone is now the
+    // same line, resampled to what the device can actually draw.
+    const DEVICE_MAX_ROUTE_POINTS = 600;
+    const DEVICE_MAX_UPLOAD_BYTES = 262144;
+
+    function thinRoute(points, max) {
+        if (points.length <= max) return points;
+        const out = [];
+        for (let i = 0; i < max; i++) {
+            out.push(points[Math.round(i * (points.length - 1) / (max - 1))]);
+        }
+        return out;
+    }
+
+    async function sendRouteToDevice() {
         if (!isConnected) { showToast('Connect to GLYPH first', 'warning'); return; }
         if (up) { showToast('An upload is already running', 'warning'); return; }
+        if (routePoints.length < 2) { showToast('Draw at least two points first', 'warning'); return; }
 
-        const kml = getKMLString();
+        const forDevice = thinRoute(routePoints, DEVICE_MAX_ROUTE_POINTS);
+        const kml = getKMLString(forDevice);
         if (!kml) { showToast('Draw at least two points first', 'warning'); return; }
 
         let name = (document.getElementById('filename').value || '').trim() || 'My_Route';
@@ -3726,14 +3620,25 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         if (!/\.kml$/i.test(name)) name += '.kml';
 
         const bytes = utf8ToBytes(kml);
-        up = { name, bytes, sent: 0, timer: null };
+        if (bytes.length > DEVICE_MAX_UPLOAD_BYTES) {
+            showAlert('Route too large',
+                'The file is ' + Math.round(bytes.length / 1024) + ' KB and the device '
+                + 'accepts 256 KB. Shorten the route, or save it as KML and copy it to '
+                + 'the memory card directly.');
+            return;
+        }
 
+        up = { name, bytes, sent: 0, timer: null };
         document.getElementById('up-bar').classList.remove('hidden');
-        document.getElementById('up-name').innerText = name;
+        document.getElementById('up-name').innerText =
+            name + ' - ' + forDevice.length + ' points, '
+            + Math.max(1, Math.round(bytes.length / 1024)) + ' KB';
         document.getElementById('up-fill').style.width = '0%';
 
-        sendCmd('CMD_PUT:' + name + '|' + bytes.length);
         armUploadTimeout();
+        if (!(await sendCmd('CMD_PUT:' + name + '|' + bytes.length, { quiet: true })) && up) {
+            failUpload('the phone could not send the command over Bluetooth');
+        }
     }
 
     // Daca aparatul nu raspunde, nu ramanem agatati la nesfarsit cu o bara de
@@ -3748,19 +3653,28 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         }, 9000);
     }
 
-    function sendNextUploadChunk() {
+    // FIX: the chunk counted as sent the instant the write was STARTED, and a
+    // write that failed was invisible. Now the counter only moves after the
+    // radio has actually taken the bytes, and a failed write fails the upload
+    // with a reason instead of leaving the bar frozen until the timeout.
+    async function sendNextUploadChunk() {
         if (!up) return;
+        armUploadTimeout();
+
         if (up.sent >= up.bytes.length) {
-            sendCmd('CMD_PUTEND');
-            armUploadTimeout();
+            const done = await sendCmd('CMD_PUTEND', { quiet: true });
+            if (up && !done) failUpload('the phone could not send the last command');
             return;
         }
+
         const slice = up.bytes.slice(up.sent, up.sent + uploadChunkBytes);
+        const ok = await sendCmd('CMD_PUTD:' + bytesToB64(slice), { quiet: true });
+        if (!up) return;                       // cancelled or failed meanwhile
+        if (!ok) { failUpload('a Bluetooth write failed'); return; }
+
         up.sent += slice.length;
-        sendCmd('CMD_PUTD:' + bytesToB64(slice));
         document.getElementById('up-fill').style.width =
             Math.round(up.sent * 100 / up.bytes.length) + '%';
-        armUploadTimeout();
     }
 
     function finishUploadUI(name) {
@@ -3975,6 +3889,20 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     function startOta(name, rawBytes) {
         if (ota) { showToast('An update is already running', 'warning'); return; }
 
+        // Only a merged image says anything about the layout; a bare app image
+        // does not, and is left alone.
+        if (rawBytes.length > ESP_APP_OFFSET && rawBytes[ESP_APP_OFFSET] === ESP_MAGIC
+            && countAppPartitions(rawBytes) === 1) {
+            showAlert('This build cannot be updated over Bluetooth',
+                'The image has a single application partition, so a device flashed '
+                + 'from it has nowhere to write an update and will refuse one.'
+                + '<br><br>Rebuild with a partition scheme that has two app slots '
+                + '(Arduino IDE: <b>Tools &rsaquo; Partition Scheme</b>, or the '
+                + '<b>partitions.csv</b> next to the sketch), flash that once over USB '
+                + 'from the flasher page, and updates over Bluetooth work from then on.');
+            return;
+        }
+
         let bytes;
         try {
             const r = extractAppImage(rawBytes);
@@ -4003,12 +3931,21 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         }, 12000);
     }
 
-    function sendNextOtaChunk() {
+    async function sendNextOtaChunk() {
         if (!ota) return;
-        if (ota.sent >= ota.bytes.length) { sendCmd('CMD_OTAEND'); armOtaTimeout(); return; }
+        armOtaTimeout();
+
+        if (ota.sent >= ota.bytes.length) {
+            const done = await sendCmd('CMD_OTAEND', { quiet: true });
+            if (ota && !done) failOta('the phone could not send the last command');
+            return;
+        }
+
         const slice = ota.bytes.slice(ota.sent, ota.sent + uploadChunkBytes);
+        const ok = await sendCmd('CMD_OTAD:' + bytesToB64(slice), { quiet: true });
+        if (!ota) return;                      // cancelled or failed meanwhile
+        if (!ok) { failOta('a Bluetooth write failed'); return; }
         ota.sent += slice.length;
-        sendCmd('CMD_OTAD:' + bytesToB64(slice));
 
         const pct = ota.sent * 100 / ota.bytes.length;
         document.getElementById('ota-fill').style.width = pct.toFixed(1) + '%';
@@ -4019,7 +3956,6 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
                         : ' · ~' + left + 's left';
         document.getElementById('ota-name').innerText =
             ota.name + ' — ' + pct.toFixed(0) + '%' + leftTxt;
-        armOtaTimeout();
     }
 
     function finishOtaUI() {
@@ -4221,12 +4157,33 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
 
     const ESP_MAGIC = 0xE9;
     const ESP_APP_OFFSET = 0x10000;
+    const ESP_PART_TABLE_OFFSET = 0x8000;
+
+    // A merged image carries its partition table at 0x8000. Reading it says
+    // whether the build has a SECOND app partition - and without one the device
+    // it produces can never take an update over Bluetooth, whatever we send it.
+    // Twenty minutes of transfer is a long way to go to find that out.
+    function countAppPartitions(b) {
+        if (b.length < ESP_PART_TABLE_OFFSET + 32) return null;
+        let apps = 0;
+        for (let o = ESP_PART_TABLE_OFFSET;
+             o + 32 <= b.length && o < ESP_PART_TABLE_OFFSET + 0x1000; o += 32) {
+            if (b[o] !== 0xAA || b[o + 1] !== 0x50) break;   // end of the table
+            if (b[o + 2] === 0x00) apps++;                   // type 0 = app
+        }
+        return apps || null;
+    }
 
     // Lungimea reala a imaginii care incepe la `off`, sau null daca nu e una.
     function espImageLength(b, off) {
         if (off + 24 > b.length || b[off] !== ESP_MAGIC) return null;
         const segs = b[off + 1];
-        const hashAppended = b[off + 22];
+        // FIX: hash_appended is byte 23 of esp_image_header_t, not 22 - byte 22
+        // is the last of the four reserved bytes and is always zero. Reading the
+        // wrong one meant the appended SHA-256 was never counted, so the app cut
+        // the last 32 bytes off every image it sent and the device answered
+        // "INVALID IMAGE" after twenty minutes of transfer.
+        const hashAppended = b[off + 23];
         if (segs === 0 || segs > 16) return null;
 
         let p = off + 24;
@@ -4371,7 +4328,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         setInterval(renderRecBanner, 30000);
         renderQuickBar();
         renderRange();
-        renderBatteryCard();
+        renderBattPill(null);
         loadSiteFirmwareInfo();
         restoreChat().catch(() => {});
         maybeShowGuide();
