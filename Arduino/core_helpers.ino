@@ -240,3 +240,77 @@ String healthBadge() {
     bad.trim();
     return bad;
 }
+
+// ---------------------------------------------------------------------------
+// DIAGNOSTIC
+//
+// Ce raspunde efectiv pe magistrala I2C, plus starea interna. Exista pentru un
+// motiv concret: cand un senzor "nu merge", intrebarea nu e ce sa schimbi in
+// cod, ci daca cipul raspunde deloc. Daca raspunde, e calibrare sau montaj;
+// daca nu, e adresa, lipitura sau cip mort. Doua raspunsuri complet diferite,
+// si pana acum n-aveai cum sa afli care.
+//
+// Nu schimba nimic si nu initializeaza nimic - doar citeste si raporteaza.
+// ---------------------------------------------------------------------------
+void reportDiagnostics() {
+    notifyPhone("SYS_DIAG_BEGIN");
+    delay(BLE_NOTIFY_GAP_MS);
+
+    if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(300)) == pdTRUE) {
+        String found = "";
+        for (uint8_t addr = 1; addr < 127; addr++) {
+            Wire.beginTransmission(addr);
+            if (Wire.endTransmission() == 0) {
+                char b[8];
+                snprintf(b, sizeof(b), "0x%02X ", addr);
+                found += b;
+            }
+        }
+        xSemaphoreGive(i2cMutex);
+        notifyPhone("SYS_DIAG:i2c|" + (found.length() ? found : String("(nimic)")));
+    } else {
+        notifyPhone("SYS_DIAG:i2c|magistrala ocupata");
+    }
+    delay(BLE_NOTIFY_GAP_MS);
+
+    // Busola LIS3MDL sta la 0x1C sau 0x1E, dupa cum e legat pinul de adresa.
+    bool magAt1C = false, magAt1E = false;
+    if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+        Wire.beginTransmission(0x1C); magAt1C = (Wire.endTransmission() == 0);
+        Wire.beginTransmission(0x1E); magAt1E = (Wire.endTransmission() == 0);
+        xSemaphoreGive(i2cMutex);
+    }
+    String magNote;
+    if (magAt1C || magAt1E) {
+        magNote = String("raspunde la ") + (magAt1C ? "0x1C" : "0x1E")
+                + " - cipul traieste; problema e calibrarea sau un magnet aproape";
+    } else {
+        magNote = "nu raspunde la 0x1C sau 0x1E - adresa, lipitura, sau cip mort";
+    }
+    notifyPhone("SYS_DIAG:compass|" + magNote);
+    delay(BLE_NOTIFY_GAP_MS);
+
+    // In firmware-ul actual busola nici nu e pornita: mag_ok nu e setat pe true
+    // nicaieri. Merita stiut inainte sa cauti vinovatul in alta parte.
+    notifyPhone(String("SYS_DIAG:compass_init|") + (mag_ok ? "pornita" : "NU e initializata in firmware"));
+    delay(BLE_NOTIFY_GAP_MS);
+
+    notifyPhone("SYS_DIAG:radio|" + String(health.radioOk ? "ok" : "ESUAT err=" + String(health.radioError)));
+    delay(BLE_NOTIFY_GAP_MS);
+    notifyPhone("SYS_DIAG:sensors|gps=" + String(gps_ok ? "ok" : "nu")
+                + " imu=" + String(imu_ok ? "ok" : "nu")
+                + " sht=" + String(sht_ok ? "ok" : "nu")
+                + " sd="  + String(sdDetected ? "ok" : "nu"));
+    delay(BLE_NOTIFY_GAP_MS);
+
+    notifyPhone("SYS_DIAG:memory|liber " + String(ESP.getFreeHeap() / 1024) + " KB, cel mai mare bloc "
+                + String(ESP.getMaxAllocHeap() / 1024) + " KB");
+    delay(BLE_NOTIFY_GAP_MS);
+    notifyPhone("SYS_DIAG:uptime|" + String(millis() / 60000) + " min");
+    delay(BLE_NOTIFY_GAP_MS);
+    notifyPhone("SYS_DIAG:airtime|" + String(meshDutyPercent()) + "% din bugetul orar");
+    delay(BLE_NOTIFY_GAP_MS);
+    notifyPhone("SYS_DIAG:version|" + String(OS_VERSION));
+
+    notifyPhone("SYS_DIAG_END");
+}

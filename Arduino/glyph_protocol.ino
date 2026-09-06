@@ -89,13 +89,14 @@ String extractSender(const String &body) {
 // payload e forma finala afisata plus coordonatele: "nume: text|lat,lon".
 // Intoarce "" daca criptarea a esuat - preferam sa nu trimitem nimic decat sa
 // trimitem in clar un mesaj pe care utilizatorul il crede securizat.
-String buildPacket(uint8_t msgType, const String &payload, bool secure) {
+String buildPacket(uint8_t msgType, const String &payload, bool secure, uint8_t hops) {
     if (payload.length() == 0) return "";
 
     if (!secure) {
         String pkt = "";
-        pkt += (char)PKT_V2_PUBLIC;
+        pkt += (char)PKT_V3_PUBLIC;
         pkt += (char)msgType;
+        pkt += (char)hops;
         pkt += payload;
         return pkt;
     }
@@ -107,10 +108,26 @@ String buildPacket(uint8_t msgType, const String &payload, bool secure) {
     if (ct.length() == 0) return "";
 
     String pkt = "";
-    pkt += (char)PKT_V2_SECURE;
+    pkt += (char)PKT_V3_SECURE;
     pkt += (char)msgType;
+    pkt += (char)hops;
     pkt += ct;
     return pkt;
+}
+
+// Scade contorul de salturi al unui pachet primit, ca sa poata fi retransmis.
+// Se lucreaza pe pachetul BRUT, neatins: retransmitem exact octetii primiti, cu
+// un singur octet schimbat. Daca l-am reconstrui din continutul decriptat, ar
+// pleca cu semnatura NOASTRA si cu contorul NOSTRU - adica ar arata ca un mesaj
+// scris de noi, si originalul n-ar mai putea fi confirmat expeditorului real.
+bool decrementHops(String &raw) {
+    if (raw.length() < 3) return false;
+    uint8_t marker = (uint8_t)raw[0];
+    if (marker != PKT_V3_SECURE && marker != PKT_V3_PUBLIC) return false;
+    uint8_t hops = (uint8_t)raw[2];
+    if (hops == 0) return false;
+    raw.setCharAt(2, (char)(hops - 1));
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +145,25 @@ GlyphMessage parsePacket(const String &raw) {
     String rest;
 
     switch (marker) {
+        case PKT_V3_SECURE: {
+            if (raw.length() < 3) return m;
+            m.type = (uint8_t)raw[1];
+            m.hopsLeft = (uint8_t)raw[2];
+            m.meshCapable = true;
+            String plain = decryptMsg(raw.substring(3));
+            if (plain.length() == 0) return m;
+            m.authentic = true;
+            splitCounterPrefix(plain, m.counter, rest);
+            break;
+        }
+        case PKT_V3_PUBLIC: {
+            if (raw.length() < 3) return m;
+            m.type = (uint8_t)raw[1];
+            m.hopsLeft = (uint8_t)raw[2];
+            m.meshCapable = true;
+            rest = raw.substring(3);
+            break;
+        }
         case PKT_V2_SECURE: {
             m.type = (uint8_t)raw[1];
             String plain = decryptMsg(raw.substring(2));

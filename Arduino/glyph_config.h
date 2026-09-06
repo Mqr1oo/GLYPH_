@@ -89,7 +89,39 @@ static const uint8_t LORA_SYNC_WORD      = 0x12;
 static const int   LORA_OUTPUT_POWER_DBM = 22;
 
 // Cat dureaza o difuzare SOS si cat asteptam intre pachete.
+// --- reteaua mesh ---------------------------------------------------------
+// Cate retransmisii are voie sa faca un mesaj. Trei inseamna ca poate trece
+// prin trei aparate intermediare - suficient pentru orice echipa realista, si
+// destul de putin cat sa nu se transforme intr-o furtuna de retransmisii.
+static const uint8_t MESH_HOPS_DEFAULT = 3;
+
+// SOS-ul primeste un salt in plus: e singurul mesaj pentru care merita sa
+// platesti timp de emisie ca sa mearga mai departe.
+static const uint8_t MESH_HOPS_SOS     = 4;
+
+// Intarzierea dinaintea unei confirmari. Daca trei aparate din echipa aud
+// acelasi mesaj si raspund in aceeasi milisecunda, nu se aude niciunul.
+static const unsigned long ACK_DELAY_MIN_MS    = 250;
+static const unsigned long ACK_DELAY_SPREAD_MS = 900;
+
+// --- bugetul legal de emisie ----------------------------------------------
+// In Europa, pe 868 MHz, majoritatea sub-benzilor permit 1% factor de
+// utilizare: 36 de secunde de emisie pe ora. Pastram 30 ca margine.
+// La SF11 un mesaj sta in aer aproape o secunda, deci limita se atinge mult
+// mai repede decat pare - de aceea aparatul o urmareste singur, in loc sa
+// depinda de bunul simt al utilizatorului.
+static const uint32_t DUTY_CYCLE_BUDGET_MS = 30000;
+
+// --- SOS ------------------------------------------------------------------
+// Rafala initiala. Dupa ea, SOS-ul nu se opreste: se repeta la intervale care
+// cresc, pana il anulezi. Un SOS de 10 secunde care prinde momentul in care
+// nimeni nu asculta e un SOS pierdut.
 static const unsigned long SOS_BROADCAST_MS   = 10000;
+
+// Intervalele dintre reluari, in secunde: des la inceput, apoi tot mai rar, ca
+// bateria sa tina ore intregi. Ultima valoare se repeta la nesfarsit.
+static const uint16_t SOS_REPEAT_SECONDS[] = { 60, 60, 120, 120, 300, 300, 600, 900 };
+static const int SOS_REPEAT_STEPS = sizeof(SOS_REPEAT_SECONDS) / sizeof(SOS_REPEAT_SECONDS[0]);
 static const unsigned long SOS_PACKET_GAP_MS  = 100;
 
 // ---------------------------------------------------------------------------

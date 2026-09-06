@@ -243,3 +243,93 @@ void finishUpload() {
 }
 
 bool uploadBusy() { return upActive; }
+
+// ---------------------------------------------------------------------------
+// ACTUALIZAREA FIRMWARE-ULUI PRIN BLUETOOTH
+//
+// Acelasi canal ca la incarcarea unei rute, dar destinatia e partitia OTA in
+// loc de card. Motivul pentru care merita: fara asta, orice reparatie inseamna
+// sa scoti aparatul din rucsac si sa cauti un cablu; cu asta, cine are un
+// GLYPH primeste actualizari.
+//
+// Ce protejeaza impotriva unui aparat mort la mijlocul actualizarii: ESP32 are
+// doua partitii de aplicatie. Scrierea merge in cea INACTIVA. Comutarea pe ea
+// se face doar la final, dupa ce Update.end() confirma ca imaginea e completa
+// si are semnatura interna corecta. Daca se intrerupe curentul sau Bluetooth-ul
+// la jumatate, aparatul reporneste pur si simplu din partitia veche, intacta.
+// ---------------------------------------------------------------------------
+
+#include <Update.h>
+
+static bool     otaActive   = false;
+static uint32_t otaExpected = 0;
+static uint32_t otaGot      = 0;
+
+void abortOta(const char *reason) {
+    if (otaActive) Update.abort();
+    otaActive = false;
+    if (reason) notifyPhone(String("SYS_OTA_ERR:") + reason);
+}
+
+void startOta(uint32_t size) {
+    if (otaActive) abortOta(NULL);
+
+    if (size < 65536UL) { notifyPhone("SYS_OTA_ERR:TOO SMALL"); return; }
+
+    // Update.begin verifica singur ca imaginea incape in partitia libera.
+    if (!Update.begin(size, U_FLASH)) {
+        notifyPhone("SYS_OTA_ERR:NO ROOM");
+        return;
+    }
+
+    otaExpected = size;
+    otaGot = 0;
+    otaActive = true;
+
+    // Actualizarea nu trebuie intrerupta de standby sau de un ecran redesenat.
+    pingActivity();
+    notifyPhone("SYS_OTA_READY");
+}
+
+void otaChunk(const String &b64) {
+    if (!otaActive) { notifyPhone("SYS_OTA_ERR:NOT STARTED"); return; }
+
+    unsigned char raw[SD_UPLOAD_CHUNK_BYTES + 8];
+    size_t written = 0;
+    if (mbedtls_base64_decode(raw, sizeof(raw), &written,
+                              (const unsigned char*)b64.c_str(), b64.length()) != 0) {
+        abortOta("DECODE");
+        return;
+    }
+
+    if (Update.write(raw, written) != written) { abortOta("WRITE"); return; }
+    otaGot += written;
+    if (otaGot > otaExpected) { abortOta("OVERRUN"); return; }
+
+    pingActivity();
+    notifyPhone("SYS_OTA_ACK:" + String(otaGot));
+}
+
+void finishOta() {
+    if (!otaActive) { notifyPhone("SYS_OTA_ERR:NOT STARTED"); return; }
+
+    if (otaGot != otaExpected) { abortOta("SHORT"); return; }
+
+    // end(true) inseamna "am terminat, marcheaza partitia noua ca activa".
+    // Intoarce false daca imaginea nu e o aplicatie ESP32 valida - caz in care
+    // nu se comuta nimic si aparatul ramane pe firmware-ul vechi.
+    if (!Update.end(true)) {
+        otaActive = false;
+        notifyPhone("SYS_OTA_ERR:INVALID IMAGE");
+        return;
+    }
+
+    otaActive = false;
+    notifyPhone("SYS_OTA_DONE");
+
+    // O clipa ca notificarea sa apuce sa plece prin Bluetooth, apoi repornim.
+    delay(400);
+    ESP.restart();
+}
+
+bool otaBusy() { return otaActive; }

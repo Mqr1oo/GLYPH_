@@ -85,14 +85,14 @@ void evaluateSleep() {
 
 
     // Cat timp difuzeaza SOS, aparatul nu are voie sa adoarma.
-    if (sosActive()) {
+    if (sosArmed()) {
         sessionActivityTime = millis();
         return;
     }
 
     // Nici cat timp trimite un fisier catre telefon: standby-ul sterge ecranul
     // si taie transferul la jumatate, iar descarcarea ar esua fara explicatie.
-    if (fileTransferBusy() || uploadBusy()) {
+    if (fileTransferBusy() || uploadBusy() || otaBusy()) {
         sessionActivityTime = millis();
         return;
     }

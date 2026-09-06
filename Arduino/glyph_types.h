@@ -74,6 +74,15 @@ typedef std::function<void(float lat, float lon, bool newSegment)> KmlPointFn;
 // cine iti inregistreaza un SOS azi il poate redifuza maine si ar fi acceptat
 // ca autentic, pentru ca este autentic - doar vechi.
 
+// v3 adauga UN SINGUR octet: cate salturi mai are voie sa faca mesajul. Sta
+// INAINTEA partii criptate, si nu inauntrul ei, fiindca fiecare releu trebuie
+// sa-l scada - iar daca ar fi sub semnatura GCM, orice modificare ar invalida
+// mesajul. Continutul ramane autentificat; doar contorul de salturi e in clar.
+// Cel mai rau lucru pe care il poate face cineva modificandu-l e sa opreasca
+// un mesaj din drum, ceea ce oricum putea face pur si simplu bruind.
+static const uint8_t PKT_V3_SECURE = 0xFB;   // antet + salturi + AES-GCM + contor
+static const uint8_t PKT_V3_PUBLIC = 0xFA;   // antet + salturi, necriptat
+
 static const uint8_t PKT_V2_SECURE = 0xFD;   // antet + AES-GCM + contor
 static const uint8_t PKT_V2_PUBLIC = 0xFC;   // antet, necriptat
 static const uint8_t PKT_V1_SECURE = 0xFE;   // AES-GCM fara antet (compatibilitate)
@@ -81,7 +90,13 @@ static const uint8_t PKT_V0_SECURE = 0xFF;   // AES-CBC vechi (compatibilitate)
 
 enum MsgType : uint8_t {
     MSG_TEXT = 1,
-    MSG_SOS  = 2
+    MSG_SOS  = 2,
+    // Confirmare de primire. Corpul e "nume: <contorul confirmat in hex>".
+    // Nu e retransmisa niciodata: ar dubla traficul fara sa aduca nimic.
+    MSG_ACK  = 3,
+    // Ping de masurare a razei; raspunsul cara RSSI si SNR cu care a fost auzit.
+    MSG_PING = 4,
+    MSG_PONG = 5
 };
 
 // Rezultatul decodarii unui pachet receptionat.
@@ -96,6 +111,8 @@ struct GlyphMessage {
     bool     hasCoords   = false;
     double   lat         = 0.0;
     double   lon         = 0.0;
+    uint8_t  hopsLeft    = 0;       // cate retransmisii mai are voie
+    bool     meshCapable = false;   // pachetul poarta antetul v3
 };
 
 // ---------------------------------------------------------------------------

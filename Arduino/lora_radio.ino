@@ -13,7 +13,7 @@ void executeSendMsg() {
     String fullMsg = myName + ": " + msgDraft;
     String payload = fullMsg + "|" + String(lat, 5) + "," + String(lon, 5);
 
-    String packet = buildPacket(MSG_TEXT, payload, secureMode);
+    String packet = buildPacket(MSG_TEXT, payload, secureMode, MESH_HOPS_DEFAULT);
     if (packet.length() == 0) {
         // Criptarea a esuat. Nu trimitem in clar un mesaj pe care
         // utilizatorul il crede securizat.

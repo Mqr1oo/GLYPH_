@@ -82,6 +82,24 @@ bool processVirtualCommand(String cmd) {
     if (cmd == "CMD_PUTEND")         { finishUpload();                 return true; }
     if (cmd == "CMD_PUTABORT")       { abortUpload(NULL);              return true; }
 
+    // --- actualizare firmware prin Bluetooth ---
+    if (cmd.startsWith("CMD_OTA:"))  { startOta((uint32_t)cmd.substring(8).toInt()); return true; }
+    if (cmd.startsWith("CMD_OTAD:")) { otaChunk(cmd.substring(9));                   return true; }
+    if (cmd == "CMD_OTAEND")         { finishOta();                                  return true; }
+    if (cmd == "CMD_OTAABORT")       { abortOta(NULL);                               return true; }
+
+    // --- masurarea razei ---
+    if (cmd == "CMD_PING")           { sendRangePing();                              return true; }
+
+    // Oprirea SOS-ului de pe telefon. Exista pentru ca SOS-ul nu se mai
+    // opreste singur: daca esti imobilizat si aparatul e in rucsac, butoanele
+    // lui nu-ti sunt de niciun folos.
+    if (cmd == "CMD_SOS_STOP")       { stopSosCompletely();                          return true; }
+    if (cmd == "CMD_SOS_START")      { startSosBroadcast();                          return true; }
+
+    // --- diagnostic: ce raspunde pe magistrala I2C ---
+    if (cmd == "CMD_DIAG")           { reportDiagnostics();                          return true; }
+
     // Telefonul cere starea imediat dupa conectare, ca sa nu astepte ciclul de
     // telemetrie de 5 secunde ca sa afle in ce mod e aparatul.
     if (cmd == "CMD_STATE") {
@@ -333,8 +351,10 @@ void handleButtons() {
 
     // Orice apasare in timpul difuzarii SOS o opreste. Inainte nu aveai cum:
     // bucla de 10 secunde nu returna in loop(), deci butoanele nu erau citite.
-    if (sosActive() && (pA || pB || pC || cA || cB || cC)) {
-        cancelSosBroadcast(true);
+    // Orice apasare in timpul SOS il opreste definitiv, nu doar runda curenta:
+    // altfel ar reporni singur peste un minut si omul ar crede ca l-a oprit.
+    if (sosArmed() && (pA || pB || pC || cA || cB || cC)) {
+        stopSosCompletely();
         latched_pA = false; latched_pB = false; latched_pC = false;
         pingActivity();
         return;
@@ -823,7 +843,20 @@ static int           sosPacketCount = 0;
 static String        sosPayload     = "";
 static String        sosDisplayMsg  = "";
 
-bool sosActive() { return sosRunning; }
+// SOS-ul nu se mai opreste dupa rafala initiala. Intra intr-o stare de veghe si
+// se repeta la intervale care cresc, pana il anulezi tu sau moare bateria. Un
+// SOS de zece secunde care prinde exact momentul in care nimeni nu asculta e un
+// SOS pierdut - iar cine il asteapta nu are de unde sti asta.
+static bool          sosStandby     = false;   // in pauza intre reluari
+static unsigned long sosNextRepeat  = 0;
+static int           sosRepeatIndex = 0;
+static int           sosTotalRounds = 0;
+
+// Aparatul e "in SOS" si cat timp asteapta urmatoarea reluare: asa nu adoarme
+// si nu isi stinge radioul intre reluari.
+bool sosActive()  { return sosRunning; }
+bool sosArmed()   { return sosRunning || sosStandby; }
+int  sosRounds()  { return sosTotalRounds; }
 
 void startSosBroadcast() {
     if (currentPowerMode == STEALTH_MODE) {
@@ -849,11 +882,45 @@ void startSosBroadcast() {
     radio.setSpreadingFactor(LORA_SPREADING_FACTOR);
 
     sosRunning     = true;
+    sosStandby     = false;
     sosStartedAt   = millis();
     sosLastPacket  = 0;
     sosPacketCount = 0;
+    sosRepeatIndex = 0;
+    sosTotalRounds = 1;
 
+    notifyPhone("SYS_SOS:1|1");
     notifyPhone("[SYS] SOS BROADCASTING!");
+}
+
+// Reluare: acelasi text, dar cu pozitia de ACUM. Daca te-ai miscat sau ai
+// prins fix intre timp, reluarea cara informatia noua - o pozitie veche de o
+// ora trimite oamenii unde nu mai esti.
+static void restartSosRound() {
+    double sLat, sLon;
+    getGpsPosition(sLat, sLon);
+    sosDisplayMsg = myName + " SOS! LAT:" + String(sLat, 5) + " LON:" + String(sLon, 5)
+                  + " BAT:" + String(getBatteryPercent()) + "%";
+    sosPayload    = sosDisplayMsg + "|" + String(sLat, 5) + "," + String(sLon, 5);
+
+    radio.setSpreadingFactor(LORA_SPREADING_FACTOR);
+    sosRunning     = true;
+    sosStandby     = false;
+    sosStartedAt   = millis();
+    sosLastPacket  = 0;
+    sosPacketCount = 0;
+    sosTotalRounds++;
+    notifyPhone("SYS_SOS:1|" + String(sosTotalRounds));
+}
+
+// Oprirea definitiva, ceruta de om.
+void stopSosCompletely() {
+    if (!sosRunning && !sosStandby) return;
+    cancelSosBroadcast(true);
+    sosStandby = false;
+    sosRepeatIndex = 0;
+    notifyPhone("SYS_SOS:0|" + String(sosTotalRounds));
+    notifyPhone("[SYS] SOS stopped after " + String(sosTotalRounds) + " rounds");
 }
 
 // Oprire manuala: orice apasare in timpul difuzarii.
@@ -876,16 +943,32 @@ void cancelSosBroadcast(bool byUser) {
 }
 
 void serviceSosBroadcast() {
+    // In pauza dintre reluari: asteptam scadenta si repornim.
+    if (sosStandby) {
+        if ((int32_t)(millis() - sosNextRepeat) >= 0) restartSosRound();
+        return;
+    }
+
     if (!sosRunning) return;
 
     if (millis() - sosStartedAt >= SOS_BROADCAST_MS) {
         cancelSosBroadcast(false);
+
+        // Nu s-a terminat - doar intra in veghe pana la urmatoarea reluare.
+        // Intervalele cresc: des la inceput, cand sansa ca cineva sa fie in
+        // raza e mai mare, apoi tot mai rar ca bateria sa tina ore intregi.
+        int idx = sosRepeatIndex;
+        if (idx >= SOS_REPEAT_STEPS) idx = SOS_REPEAT_STEPS - 1;
+        sosNextRepeat = millis() + (unsigned long)SOS_REPEAT_SECONDS[idx] * 1000UL;
+        if (sosRepeatIndex < SOS_REPEAT_STEPS - 1) sosRepeatIndex++;
+        sosStandby = true;
+        notifyPhone("SYS_SOS:2|" + String(SOS_REPEAT_SECONDS[idx]));
         return;
     }
 
     if (sosLastPacket != 0 && millis() - sosLastPacket < SOS_PACKET_GAP_MS) return;
 
-    String packet = buildPacket(MSG_SOS, sosPayload, secureMode);
+    String packet = buildPacket(MSG_SOS, sosPayload, secureMode, MESH_HOPS_SOS);
     if (packet.length() == 0) {          // criptarea a esuat
         sosRunning = false;
         notifyPhone("[SYS] SOS encryption failed");

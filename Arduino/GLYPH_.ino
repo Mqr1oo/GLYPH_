@@ -275,6 +275,12 @@ void uploadChunk(const String &b64);
 void finishUpload();
 void abortUpload(const char *reason);
 bool uploadBusy();
+void startOta(uint32_t size);
+void otaChunk(const String &b64);
+void finishOta();
+void abortOta(const char *reason);
+bool otaBusy();
+void reportDiagnostics();
 void updateUI();
 void sendInputPrompt(String msg);
 void logGPS(double lat, double lon, float alt);
@@ -305,12 +311,28 @@ int beginRadio(float freq);
 void applyPowerMode(PowerMode mode);
 void upsertTeammate(const String &name, double lat, double lon, uint32_t counter);
 GlyphMessage parsePacket(const String &raw);
-String buildPacket(uint8_t msgType, const String &payload, bool secure);
+String buildPacket(uint8_t msgType, const String &payload, bool secure, uint8_t hops);
+bool decrementHops(String &raw);
+
+// Reteaua mesh (glyph_mesh.ino)
+void meshBegin();
+void meshOnReceived(const String &raw, const GlyphMessage &msg, float snr, float rssi);
+void serviceMesh();
+bool meshCanSend(int payloadLen);
+void meshNoteTransmit(int payloadLen);
+int  meshDutyPercent();
+void sendAck(const String &toWhom, uint32_t counter);
+void sendRangePing();
+void replyToPing(const GlyphMessage &msg, float snr, float rssi);
+void logRangeSample(const String &peer, float rssi, float snr, double peerLat, double peerLon);
 bool isReplay(const String &sender, uint32_t counter, bool authentic);
 String decryptLegacyCBC(String input);
 void serviceSosBroadcast();
 void startSosBroadcast();
 bool sosActive();
+bool sosArmed();
+int  sosRounds();
+void stopSosCompletely();
 void pushLoraHistory(String screenMsg);
 void setTeamName(String name);
 void invalidateTeamKey();
@@ -332,6 +354,7 @@ void setup() {
     i2cMutex = xSemaphoreCreateMutex();
 
     initBLE();
+    meshBegin();
 
     pinMode(EDP_CS, OUTPUT); digitalWrite(EDP_CS, HIGH);
     pinMode(SDCARD_CS, OUTPUT); digitalWrite(SDCARD_CS, HIGH);
@@ -474,6 +497,10 @@ void loop() {
     // exista un transfer in curs. Se intoarce imediat cand nu e nimic de facut.
     serviceFileTransfer(); 
 
+    // Retransmisiile si confirmarile amanate. Se intoarce imediat cand n-are
+    // nimic de trimis; nu blocheaza niciodata bucla.
+    serviceMesh();
+
     if (promptNeedsResend && deviceConnected && !introMode) {
         promptNeedsResend = false;
         if (currentState == PAGE_INIT_NAME) notifyPhone(">> " + String(tr_prompt_name[currentLang]));
@@ -488,6 +515,36 @@ void loop() {
 
         if (state == RADIOLIB_ERR_NONE && raw.length() > 0) {
             GlyphMessage msg = parsePacket(raw);
+            const float rxSnr  = radio.getSNR();
+            const float rxRssi = radio.getRSSI();
+
+            // Reteaua vede FIECARE pachet valid, inclusiv pe cele pe care
+            // filtrul de mod de mai jos nu le va afisa: un aparat pe public
+            // trebuie sa poata duce mai departe SOS-ul unei echipe, chiar daca
+            // nu are cum sa-i citeasca mesajele obisnuite.
+            meshOnReceived(raw, msg, rxSnr, rxRssi);
+
+            // Confirmarile si masuratorile nu sunt conversatie: nu ajung in
+            // istoricul de pe ecran, doar in telefon si in fisierul de pe card.
+            if (msg.valid && msg.authentic && msg.type == MSG_ACK) {
+                notifyPhone("SYS_ACK:" + msg.sender + "|" + msg.body);
+                radio.startReceive();
+                return;
+            }
+            if (msg.valid && msg.authentic && msg.type == MSG_PING) {
+                replyToPing(msg, rxSnr, rxRssi);
+                radio.startReceive();
+                return;
+            }
+            if (msg.valid && msg.authentic && msg.type == MSG_PONG) {
+                logRangeSample(msg.sender, rxRssi, rxSnr,
+                               msg.hasCoords ? msg.lat : 0.0,
+                               msg.hasCoords ? msg.lon : 0.0);
+                notifyPhone("SYS_RANGE:" + msg.sender + "|" + String(rxRssi, 0)
+                            + "|" + String(rxSnr, 1) + "|" + msg.body);
+                radio.startReceive();
+                return;
+            }
 
             // Filtrul de mod: in modul securizat aratam doar mesaje autentificate,
             // in modul public doar pe cele necriptate.
