@@ -33,17 +33,17 @@ void drawHeader(String title, bool isMap = false) {
     int scrW = display.width(); 
     String timeStr = formatLocalTime();
 
-    // Buffer fix in loc de concatenare de String: antetul se redeseneaza la
-    // fiecare schimbare de ecran, deci era una dintre sursele constante de
-    // alocari din heap.
+    // Fixed buffer instead of String concatenation: the header is redrawn on
+    // every screen change and was a steady source of heap allocations.
     char batBuf[8];
-    snprintf(batBuf, sizeof(batBuf), "%s%d%%", batteryLow() ? "!" : "", getBatteryPercent());
+    snprintf(batBuf, sizeof(batBuf), "%s%d%%",
+             batteryCharging() ? "+" : (batteryLow() ? "!" : ""), batteryChargePercent());
     String batStr = batBuf;
 
     String dirStr = getCardinalDirection(currentHeading, currentSpeed);
 
-    // Ce nu merge se vede in titlu. Inainte, daca radioul nu initializa,
-    // aparatul arata perfect normal si nu transmitea nimic.
+    // Broken subsystems show in the title. Otherwise a radio that failed to
+    // init looks perfectly normal while transmitting nothing.
     if (!isMap) {
         String bad = healthBadge();
         if (bad.length() > 0) {
@@ -139,8 +139,8 @@ void renderMap() {
     bool hasMapContent = hasGpsFix || breadcrumbIdx > 0 || simActive || (currentKmlOverlay != "" && kmlCacheValid);
 
     if (hasMapContent) {
-        // O singura citire coerenta a pozitiei pentru tot randarea, ca harta sa
-        // nu amestece o latitudine dintr-un fix cu o longitudine din urmatorul.
+        // One coherent position read for the whole render, so the map cannot mix
+        // a latitude from one fix with a longitude from the next.
         double posLat, posLon;
         getGpsPosition(posLat, posLon);
 
@@ -517,10 +517,6 @@ void renderMenuTeam() {
     drawSidebarBtn(cx, 75, "B", "EDIT");
 }
 
-// renderKeyboard() si renderTeamNameEdit() erau doua copii ale aceleiasi
-// functii de 50 de linii. Difereau prin patru lucruri: titlul, textul editat,
-// eticheta ultimului buton ("SND" vs "SAV") si faptul ca editorul de mesaje
-// micsoreaza fontul dupa 15 caractere. Astea patru sunt acum parametri.
 void renderTextEditor(const char* title, const String& draft,
                       const char* saveLabel, bool shrinkLongText) {
     drawHeader(title, false);

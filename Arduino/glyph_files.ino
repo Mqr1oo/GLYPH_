@@ -1,16 +1,13 @@
 //file name:glyph_files.ino
 //
-// Acces la cardul SD de pe telefon: listare si descarcare.
+// SD card access from the phone: listing, download, upload, OTA.
 //
-// De ce e o masina de stari si nu o simpla bucla: un fisier KML de traseu are
-// zeci de kilobytes, iar printr-o notificare BLE incap ~180 de octeti. Trimise
-// intr-o bucla, cele cateva sute de notificari ar bloca loop() destule secunde
-// cat butoanele sa nu mai raspunda si watchdog-ul sa se supere - exact bug-ul
-// pe care tocmai l-am reparat la GPS. Asa ca trimitem cateva bucati la fiecare
-// trecere prin loop() si ne intoarcem imediat.
-//
-// Datele merg in base64 fiindca protocolul catre telefon e pe linii de text,
-// iar un KML contine sfarsituri de linie care ar rupe incadrarea.
+// Download is a state machine serviced from loop(), not a loop that runs to
+// completion. A route KML is tens of kilobytes and a BLE notification carries
+// about 180 bytes; sending hundreds of notifications in one pass would block
+// loop() for seconds, freezing the buttons and tripping the watchdog. Each
+// pass sends a few chunks and returns. Payloads are base64 because the phone
+// protocol is line based.
 
 #include "mbedtls/base64.h"
 
@@ -20,7 +17,7 @@ static uint32_t xferSent   = 0;
 static uint32_t xferTotal  = 0;
 static String   xferName   = "";
 
-// Numele vine de la telefon. Nu are voie sa iasa din radacina cardului.
+// The name comes from the phone. It must not escape the card root.
 static bool isSafeFileName(const String &name) {
     if (name.length() == 0 || name.length() > 64) return false;
     if (name.indexOf("..") >= 0) return false;
@@ -38,8 +35,6 @@ void abortFileTransfer(const char *reason) {
     if (reason) notifyPhone(String("SYS_FILE_ERR:") + reason);
 }
 
-// Lista completa a cardului, nu doar fisierele KML: telefonul arata si
-// jurnalele de mesaje, nu doar traseele.
 void sendSDListing() {
     if (!sdDetected) { notifyPhone("SYS_LS_ERR:NO CARD"); return; }
 
@@ -86,11 +81,9 @@ void startFileTransfer(const String &rawName) {
     notifyPhone("SYS_FILE_BEGIN:" + rawName + "|" + String(xferTotal));
 }
 
-// Chemata din loop(). Trimite cel mult SD_XFER_CHUNKS_PER_LOOP bucati si iese.
 void serviceFileTransfer() {
     if (!xferActive) return;
 
-    // Telefonul a plecat la mijlocul transferului: nu are rost sa citim mai departe.
     if (!deviceConnected) { abortFileTransfer(NULL); return; }
 
     for (int i = 0; i < SD_XFER_CHUNKS_PER_LOOP; i++) {
@@ -113,7 +106,7 @@ void serviceFileTransfer() {
             return;
         }
 
-        // base64 creste volumul cu o treime, plus terminatorul de sir.
+        // base64 grows the data by a third, plus the string terminator.
         unsigned char b64[((SD_XFER_CHUNK_BYTES + 2) / 3) * 4 + 4];
         size_t written = 0;
         if (mbedtls_base64_encode(b64, sizeof(b64), &written,
@@ -131,16 +124,10 @@ void serviceFileTransfer() {
 
 bool fileTransferBusy() { return xferActive; }
 
-// ---------------------------------------------------------------------------
-// INCARCAREA UNEI RUTE DE PE TELEFON PE CARD
-//
-// Controlul fluxului e simplu si sigur: aparatul confirma fiecare bucata, iar
-// telefonul o trimite pe urmatoarea abia dupa confirmare. Motivul e ca receptia
-// BLE are un singur sertar (bleRxBuffer); daca telefonul ar trimite in rafala,
-// o bucata ar suprascrie alta inainte ca loop() sa apuce s-o citeasca, si
-// fisierul ar iesi corupt fara ca nimeni sa afle. Cu o singura bucata in zbor,
-// pierderea e imposibila prin constructie.
-// ---------------------------------------------------------------------------
+// Upload: every chunk is acknowledged before the phone sends the next one. The
+// BLE receive path has a single slot (bleRxBuffer); in a burst one chunk would
+// overwrite another before loop() reads it and the file would be corrupt with
+// nothing reporting it. One chunk in flight makes that impossible.
 
 static File     upFile;
 static bool     upActive   = false;
@@ -150,8 +137,7 @@ static String   upName     = "";
 
 void abortUpload(const char *reason) {
     if (upFile) upFile.close();
-    // Un fisier scris pe jumatate e mai rau decat niciunul: pare valid in
-    // lista si se deschide gol. Il stergem.
+    // A half written file is worse than none: it lists as valid and opens empty.
     if (upActive && upName.length()) SD.remove("/" + upName);
     upActive = false;
     upName = "";
@@ -173,8 +159,7 @@ void startUpload(const String &arg) {
     }
 
     acquireSD();
-    // "w" trunchiaza: reincarcarea aceleiasi rute o inlocuieste, nu o lipeste
-    // la coada celei vechi.
+    // "w" truncates: re-uploading a route replaces it instead of appending.
     upFile = SD.open("/" + name, FILE_WRITE);
     if (!upFile) { notifyPhone("SYS_PUT_ERR:CANNOT WRITE"); return; }
 
@@ -202,7 +187,6 @@ void uploadChunk(const String &b64) {
 
     if (upGot > upExpected) { abortUpload("OVERRUN"); return; }
 
-    // Confirmarea e si semnalul de "trimite urmatoarea".
     notifyPhone("SYS_PUT_ACK:" + String(upGot));
 }
 
@@ -213,7 +197,7 @@ void finishUpload() {
     upFile.close();
 
     if (upGot != upExpected) {
-        // S-a pierdut ceva pe drum. Mai bine niciun fisier decat unul trunchiat.
+        // Something was lost. No file is better than a truncated one.
         SD.remove("/" + upName);
         upActive = false;
         notifyPhone("SYS_PUT_ERR:SHORT");
@@ -224,12 +208,8 @@ void finishUpload() {
     upActive = false;
     upName = "";
 
-    // Lista de pe aparat trebuie sa vada imediat fisierul nou.
     scanKMLFiles();
 
-    // O ruta planificata pe telefon se deschide singura pe harta aparatului -
-    // asta e tot rostul incarcarii. Fara pasul asta ar trebui sa o cauti de
-    // mana prin meniu, cu manusi, pe frig.
     String lower = name; lower.toLowerCase();
     if (lower.endsWith(".kml")) {
         currentKmlOverlay = "/" + name;
@@ -244,20 +224,10 @@ void finishUpload() {
 
 bool uploadBusy() { return upActive; }
 
-// ---------------------------------------------------------------------------
-// ACTUALIZAREA FIRMWARE-ULUI PRIN BLUETOOTH
-//
-// Acelasi canal ca la incarcarea unei rute, dar destinatia e partitia OTA in
-// loc de card. Motivul pentru care merita: fara asta, orice reparatie inseamna
-// sa scoti aparatul din rucsac si sa cauti un cablu; cu asta, cine are un
-// GLYPH primeste actualizari.
-//
-// Ce protejeaza impotriva unui aparat mort la mijlocul actualizarii: ESP32 are
-// doua partitii de aplicatie. Scrierea merge in cea INACTIVA. Comutarea pe ea
-// se face doar la final, dupa ce Update.end() confirma ca imaginea e completa
-// si are semnatura interna corecta. Daca se intrerupe curentul sau Bluetooth-ul
-// la jumatate, aparatul reporneste pur si simplu din partitia veche, intacta.
-// ---------------------------------------------------------------------------
+// OTA uses the same channel, but the target is flash. Writes go to the INACTIVE
+// application partition and the switch happens only at the end, after
+// Update.end() validates the image. A power or Bluetooth loss midway leaves the
+// device booting the old partition.
 
 #include <Update.h>
 
@@ -276,7 +246,6 @@ void startOta(uint32_t size) {
 
     if (size < 65536UL) { notifyPhone("SYS_OTA_ERR:TOO SMALL"); return; }
 
-    // Update.begin verifica singur ca imaginea incape in partitia libera.
     if (!Update.begin(size, U_FLASH)) {
         notifyPhone("SYS_OTA_ERR:NO ROOM");
         return;
@@ -286,7 +255,7 @@ void startOta(uint32_t size) {
     otaGot = 0;
     otaActive = true;
 
-    // Actualizarea nu trebuie intrerupta de standby sau de un ecran redesenat.
+    // Standby or a screen redraw must not interrupt the update.
     pingActivity();
     notifyPhone("SYS_OTA_READY");
 }
@@ -315,9 +284,8 @@ void finishOta() {
 
     if (otaGot != otaExpected) { abortOta("SHORT"); return; }
 
-    // end(true) inseamna "am terminat, marcheaza partitia noua ca activa".
-    // Intoarce false daca imaginea nu e o aplicatie ESP32 valida - caz in care
-    // nu se comuta nimic si aparatul ramane pe firmware-ul vechi.
+    // end(true) activates the new partition. False means an invalid image and
+    // nothing is switched.
     if (!Update.end(true)) {
         otaActive = false;
         notifyPhone("SYS_OTA_ERR:INVALID IMAGE");
@@ -327,7 +295,7 @@ void finishOta() {
     otaActive = false;
     notifyPhone("SYS_OTA_DONE");
 
-    // O clipa ca notificarea sa apuce sa plece prin Bluetooth, apoi repornim.
+    // Let the notification leave over Bluetooth before restarting.
     delay(400);
     ESP.restart();
 }

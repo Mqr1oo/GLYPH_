@@ -1,18 +1,8 @@
 //file name:core_helpers.ino
 //
-// Blocuri care erau copiate identic in mai multe locuri, stranse intr-un
-// singur loc. Comportamentul e neschimbat - doar sursa adevarului e una singura.
-//
-//   applyRadioProfile()  inlocuia 5 copii ale aceleiasi configurari de radio
-//   applyPowerMode()     inlocuia 3 copii ale blocului de mod de putere
-//   pushLoraHistory()    inlocuia 3 copii ale shift-ului prin istoric
-//   inSetupPage()        inlocuia 5 copii ale aceleiasi conditii
-//   getLocalDateTime()   inlocuia 6 copii ale conversiei UTC -> ora locala
-//   setGpsPosition()/getGpsPosition()  acces coerent la pozitie intre core-uri
+// Blocks that were duplicated across the sketch, kept here so each has a single
+// source of truth.
 
-// ---------------------------------------------------------------------------
-// Starea de configurare initiala
-// ---------------------------------------------------------------------------
 bool inSetupPage() {
     return currentState == PAGE_INIT_LANG ||
            currentState == PAGE_INIT_FREQ ||
@@ -20,10 +10,8 @@ bool inSetupPage() {
            currentState == PAGE_INIT_TIME;
 }
 
-// ---------------------------------------------------------------------------
-// Configurarea radioului. Aceiasi parametri peste tot: doua aparate configurate
-// pe cai diferite trebuie sa ajunga la exact aceeasi configuratie.
-// ---------------------------------------------------------------------------
+// Same parameters everywhere: two devices configured by different paths must
+// end up with an identical radio configuration.
 void applyRadioProfile() {
     radio.setSpreadingFactor(LORA_SPREADING_FACTOR);
     radio.setBandwidth(LORA_BANDWIDTH_KHZ);
@@ -32,9 +20,8 @@ void applyRadioProfile() {
     radio.setOutputPower(LORA_OUTPUT_POWER_DBM);
 }
 
-// Intoarce codul RadioLib, ca apelantul sa poata sti daca radioul chiar merge.
-// Inainte, un esec la radio.begin() era complet invizibil: aparatul arata
-// perfect normal si nu transmitea nimic.
+// Returns the RadioLib code: a failed radio.begin() is otherwise invisible, the
+// device looks normal and transmits nothing.
 int beginRadio(float freq) {
     int state = radio.begin(freq);
     health.radioOk = (state == RADIOLIB_ERR_NONE);
@@ -43,9 +30,7 @@ int beginRadio(float freq) {
     return state;
 }
 
-// ---------------------------------------------------------------------------
-// Modul de putere. Ordinea operatiilor e cea din meniu, pastrata identic.
-// ---------------------------------------------------------------------------
+// The order of operations matches the menu; changing it changes behaviour.
 void applyPowerMode(PowerMode mode) {
     if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) != pdTRUE) return;
 
@@ -65,9 +50,6 @@ void applyPowerMode(PowerMode mode) {
     xSemaphoreGive(i2cMutex);
 }
 
-// ---------------------------------------------------------------------------
-// Istoricul de mesaje LoRa
-// ---------------------------------------------------------------------------
 void pushLoraHistory(String screenMsg) {
     for (int i = MAX_LORA_MSGS - 1; i > 0; i--) {
         loraHistory[i] = loraHistory[i - 1];
@@ -76,12 +58,8 @@ void pushLoraHistory(String screenMsg) {
     if (loraMsgCount < MAX_LORA_MSGS) loraMsgCount++;
 }
 
-// ---------------------------------------------------------------------------
-// Numele echipei. Erau 5 copii ale acestui bloc (comanda BLE, editorul de la
-// butoane x2, intrarea seriala, intrarea BLE), iar de cand cheia se deriva cu
-// PBKDF2 si se pastreaza in cache, fiecare dintre ele trebuia sa invalideze
-// cache-ul - exact genul de pas care se uita intr-una din cele 5 copii.
-// ---------------------------------------------------------------------------
+// The team key is derived with PBKDF2 and cached, so every change of the name
+// must invalidate that cache. Single entry point so the step cannot be missed.
 void setTeamName(String name) {
     if (name.length() > MAX_TEAM_LEN) name = name.substring(0, MAX_TEAM_LEN);
     if (name.length() == 0) name = "ALPHA";
@@ -90,17 +68,10 @@ void setTeamName(String name) {
     invalidateTeamKey();
 }
 
-// ---------------------------------------------------------------------------
-// Pozitia GPS, coerenta intre core-uri.
-//
-// lastLat/lastLon sunt double (8 octeti). Scrierea lor nu e atomica pe ESP32,
-// iar sensorTask (core 0) scria in timp ce loop() (core 1) citea. Rezultatul:
-// din cand in cand se citea jumatatea noua a latitudinii cu jumatatea veche a
-// longitudinii - o coordonata aberanta, aparuta "din senin" pe harta sau
-// trimisa intr-un mesaj.
-//
-// Un portMUX e suficient: sectiunea critica are cateva instructiuni.
-// ---------------------------------------------------------------------------
+// lastLat/lastLon are doubles and writes to them are not atomic on the ESP32.
+// sensorTask (core 0) writes while loop() (core 1) reads, so an unguarded read
+// can mix the new half of the latitude with the old half of the longitude and
+// produce a bogus coordinate. Touch the three values only through these.
 portMUX_TYPE gpsPosMux = portMUX_INITIALIZER_UNLOCKED;
 
 void setGpsPosition(double lat, double lon, float alt) {
@@ -111,7 +82,6 @@ void setGpsPosition(double lat, double lon, float alt) {
     portEXIT_CRITICAL(&gpsPosMux);
 }
 
-// Citeste cele trei valori ca un tot unitar.
 void getGpsPosition(double &lat, double &lon, float &alt) {
     portENTER_CRITICAL(&gpsPosMux);
     lat = lastLat;
@@ -125,13 +95,9 @@ void getGpsPosition(double &lat, double &lon) {
     getGpsPosition(lat, lon, ignored);
 }
 
-// ---------------------------------------------------------------------------
-// Coechipieri
-// ---------------------------------------------------------------------------
-//
-// Se apeleaza doar pentru mesaje autentificate (vezi filtrul din loop()).
-// Cand tabelul e plin, evacuam cel mai vechi - dar acum toti cei din tabel au
-// dovedit ca detin cheia echipei, deci nu mai poate fi umplut de un strain.
+// Only called for authenticated messages (see the filter in loop()). The oldest
+// entry is evicted when full; every entry has proven it holds the team key, so
+// a stranger cannot flood the table.
 void upsertTeammate(const String &name, double lat, double lon, uint32_t counter) {
     for (int i = 0; i < teammateCount; i++) {
         if (teammates[i].name == name) {
@@ -160,26 +126,110 @@ void upsertTeammate(const String &name, double lat, double lon, uint32_t counter
     teammates[slot].lastCounter = counter;
 }
 
-// ---------------------------------------------------------------------------
-// Bateria
-// ---------------------------------------------------------------------------
-//
-// O singura citire pe ADC-ul ESP32-S3 poate sari cu peste 100 mV, iar curba lui
-// nu e liniara. analogReadMilliVolts() aplica automat calibrarea din eFuse;
-// media peste mai multe citiri scoate zgomotul.
+// A single read on the ESP32-S3 ADC can jump by over 100 mV and its curve is not
+// linear. analogReadMilliVolts() applies the eFuse calibration; averaging
+// removes the noise.
+// Charging state, inferred from the voltage trace. There is no charge-status
+// pin on this board, so this is a heuristic; it is stated as such rather than
+// presented as a measurement.
+bool  batCharging   = false;
+bool  batSettling   = false;   // just unplugged, cell still relaxing
+float batRestingV   = 0.0f;    // last voltage believed to reflect real charge
+static unsigned long batUnplugAt   = 0;
+static unsigned long batTrendAt    = 0;
+static float         batTrendStart = 0.0f;
+
+// Charge progress. The terminal voltage jumps the instant a cable goes in, so
+// that first jump says nothing about the pack. What does say something is the
+// climb AFTER it: in the constant-current phase the voltage rises steadily
+// toward the end-of-charge point. Progress is measured from the post-jump
+// voltage, and starts from the last resting percentage, so the number begins
+// at the truth and moves up instead of leaping to a wrong one.
+static float chgStartV   = 0.0f;
+static int   chgStartPct = 0;
+
 void sampleBattery() {
     uint32_t sum = 0;
     for (int i = 0; i < BATTERY_ADC_SAMPLES; i++) {
         sum += analogReadMilliVolts(PIN_BAT_ADC);
     }
-    batVoltage = (sum / (float)BATTERY_ADC_SAMPLES) / 1000.0f * BATTERY_DIVIDER;
+    const float v = (sum / (float)BATTERY_ADC_SAMPLES) / 1000.0f * BATTERY_DIVIDER;
+    const float prev = batVoltage;
+    batVoltage = v;
+
+    if (prev < 0.5f) {                  // first reading after boot
+        batRestingV = v;
+        batTrendStart = v;
+        batTrendAt = millis();
+        return;
+    }
+
+    if (!batCharging) {
+        // A sharp rise can only come from an external supply.
+        if (v - prev >= BATTERY_CHARGE_STEP_V) {
+            batCharging = true;
+            batSettling = false;
+            chgStartV   = v;
+            chgStartPct = getBatteryPercent();
+        } else if (v - batTrendStart >= BATTERY_CHARGE_TREND_V
+                   && millis() - batTrendAt >= BATTERY_TREND_MS) {
+            // Cable was already in at power-on: no step to catch, but the pack
+            // still climbs, which discharging never does.
+            batCharging = true;
+            chgStartV   = batTrendStart;
+            chgStartPct = getBatteryPercent();
+        } else if (!batSettling) {
+            // Discharging and settled: this reading is the truth worth keeping.
+            batRestingV = v;
+        }
+    } else if (prev - v >= BATTERY_UNPLUG_STEP_V) {
+        batCharging = false;
+        batSettling = true;
+        batUnplugAt = millis();
+    }
+
+    if (batSettling && millis() - batUnplugAt >= BATTERY_SETTLE_MS) {
+        batSettling = false;
+        batRestingV = v;
+    }
+
+    // Restart the trend window regularly so a slow drift is not read as a rise.
+    if (millis() - batTrendAt >= BATTERY_TREND_MS) {
+        batTrendAt = millis();
+        batTrendStart = v;
+    }
 }
 
-// Curba reala Li-Ion 18650 in gol, aproximata pe segmente.
-// Inainte existau trei formule diferite in proiect: ecranul arata un procent,
-// telefonul altul, iar CSV-ul al treilea.
+bool batteryCharging() { return batCharging; }
+
+// Where the charge has got to, as a percentage. Only meaningful while a
+// charger is attached; it saturates near the end because the last stretch is
+// constant-voltage, where the voltage stops moving and only the current falls,
+// which this board cannot measure.
+int batteryChargePercent() {
+    if (!batCharging) return getBatteryPercent();
+    const float span = BATTERY_FULL_V - chgStartV;
+    if (span <= 0.02f) return 100;
+    float progress = (batVoltage - chgStartV) / span;
+    if (progress < 0.0f) progress = 0.0f;
+    if (progress > 1.0f) progress = 1.0f;
+    int pct = chgStartPct + (int)((100 - chgStartPct) * progress);
+    if (pct < chgStartPct) pct = chgStartPct;
+    if (pct > 100) pct = 100;
+    return pct;
+}
+
+// The percentage the pack really has. While a charger is attached the terminal
+// voltage says nothing about state of charge, so the last resting reading is
+// reported instead of a number that would be wrong by 40 points.
+float batteryTrustedVoltage() {
+    return (batCharging || batSettling) ? batRestingV : batVoltage;
+}
+
+// Piecewise approximation of the 18650 open-circuit curve. The only formula in
+// the project: screen, phone and CSV must report the same percent.
 int getBatteryPercent() {
-    float v = batVoltage;
+    float v = batteryTrustedVoltage();
     if (v >= 4.15f) return 100;
     if (v <= 3.30f) return 0;
     if (v > 3.90f) return (int)(80.0f + (v - 3.90f) * (20.0f / 0.25f));
@@ -188,22 +238,24 @@ int getBatteryPercent() {
     return (int)((v - 3.30f) * (15.0f / 0.25f));
 }
 
+// Never warn while charging: the pack is on its way up, and a warning that
+// cannot be acted on is noise.
 bool batteryLow() {
-    return batVoltage > 0.5f && batVoltage < BATTERY_WARN_V;
+    if (batCharging) return false;
+    const float v = batteryTrustedVoltage();
+    return v > 0.5f && v < BATTERY_WARN_V;
 }
 
-// Sub pragul de oprire, sustinut, inchidem ordonat.
-//
-// Inainte, batVoltage era doar afisat si logat: aparatul mergea pana cadea
-// regulatorul, posibil in mijlocul unei scrieri pe SD, ceea ce putea lasa
-// traseul trunchiat sau tabela FAT corupta. Pentru un aparat al carui rost e sa
-// inregistreze unde ai fost, a pierde traseul exact la sfarsitul lui e cel mai
-// prost moment posibil.
+// Sustained undervoltage forces an ordered shutdown. Running until the regulator
+// drops can cut an SD write in half and corrupt the track or the FAT.
 void checkBatteryCutoff() {
     static unsigned long belowSince = 0;
 
-    // Sub 0.5 V inseamna ca ADC-ul nu citeste corect (alimentare pe USB fara
-    // acumulator, de exemplu), nu ca bateria e goala.
+    // Never shut down while a charger is attached: the pack is going up, and a
+    // shutdown would strand the device exactly when it is being rescued.
+    if (batCharging) { belowSince = 0; return; }
+
+    // Below 0.5 V the ADC is not reading a battery (USB power, no cell).
     if (batVoltage < 0.5f || batVoltage >= BATTERY_CUTOFF_V) {
         belowSince = 0;
         return;
@@ -214,8 +266,8 @@ void checkBatteryCutoff() {
         return;
     }
 
-    // Un varf de consum (transmisia LoRa trage cateva sute de mA) nu trebuie sa
-    // opreasca aparatul degeaba, de aceea cerem ca pragul sa fie depasit continuu.
+    // A current spike (LoRa TX draws hundreds of mA) must not shut the device
+    // down, so the threshold has to be held continuously.
     if (millis() - belowSince < BATTERY_CUTOFF_HOLD_MS) return;
 
     notifyPhone("[SYS] Battery critical, shutting down");
@@ -224,13 +276,6 @@ void checkBatteryCutoff() {
     enterDeepSleep8Min(false);
 }
 
-// ---------------------------------------------------------------------------
-// Starea perifericelor
-// (obiectul `health` e definit in GLYPH_.ino, fiindca sketch-ul principal e
-//  concatenat primul si il foloseste deja in setup())
-// ---------------------------------------------------------------------------
-
-// Text scurt pentru antetul ecranului: ce lipseste, nu ce merge.
 String healthBadge() {
     String bad = "";
     if (!health.radioOk)   bad += "RADIO ";
@@ -241,17 +286,12 @@ String healthBadge() {
     return bad;
 }
 
-// ---------------------------------------------------------------------------
-// DIAGNOSTIC
+// DIAGNOSTICS
 //
-// Ce raspunde efectiv pe magistrala I2C, plus starea interna. Exista pentru un
-// motiv concret: cand un senzor "nu merge", intrebarea nu e ce sa schimbi in
-// cod, ci daca cipul raspunde deloc. Daca raspunde, e calibrare sau montaj;
-// daca nu, e adresa, lipitura sau cip mort. Doua raspunsuri complet diferite,
-// si pana acum n-aveai cum sa afli care.
-//
-// Nu schimba nimic si nu initializeaza nimic - doar citeste si raporteaza.
-// ---------------------------------------------------------------------------
+// When a sensor seems dead, the useful question is whether the chip answers on
+// the bus at all. If it answers, the fault is calibration or mounting; if not,
+// it is the address, the solder joint or a dead chip. Reads and reports only:
+// initializes nothing, changes nothing.
 void reportDiagnostics() {
     notifyPhone("SYS_DIAG_BEGIN");
     delay(BLE_NOTIFY_GAP_MS);
@@ -267,13 +307,13 @@ void reportDiagnostics() {
             }
         }
         xSemaphoreGive(i2cMutex);
-        notifyPhone("SYS_DIAG:i2c|" + (found.length() ? found : String("(nimic)")));
+        notifyPhone("SYS_DIAG:i2c|" + (found.length() ? found : String("(nothing)")));
     } else {
-        notifyPhone("SYS_DIAG:i2c|magistrala ocupata");
+        notifyPhone("SYS_DIAG:i2c|bus busy");
     }
     delay(BLE_NOTIFY_GAP_MS);
 
-    // Busola LIS3MDL sta la 0x1C sau 0x1E, dupa cum e legat pinul de adresa.
+    // The LIS3MDL sits at 0x1C or 0x1E depending on the address pin.
     bool magAt1C = false, magAt1E = false;
     if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
         Wire.beginTransmission(0x1C); magAt1C = (Wire.endTransmission() == 0);
@@ -282,33 +322,35 @@ void reportDiagnostics() {
     }
     String magNote;
     if (magAt1C || magAt1E) {
-        magNote = String("raspunde la ") + (magAt1C ? "0x1C" : "0x1E")
-                + " - cipul traieste; problema e calibrarea sau un magnet aproape";
+        magNote = String("answers at ") + (magAt1C ? "0x1C" : "0x1E")
+                + " - the chip is alive; the trouble is calibration or a magnet nearby";
     } else {
-        magNote = "nu raspunde la 0x1C sau 0x1E - adresa, lipitura, sau cip mort";
+        magNote = "no answer at 0x1C or 0x1E - wrong address, bad solder joint, or dead chip";
     }
     notifyPhone("SYS_DIAG:compass|" + magNote);
     delay(BLE_NOTIFY_GAP_MS);
 
-    // In firmware-ul actual busola nici nu e pornita: mag_ok nu e setat pe true
-    // nicaieri. Merita stiut inainte sa cauti vinovatul in alta parte.
-    notifyPhone(String("SYS_DIAG:compass_init|") + (mag_ok ? "pornita" : "NU e initializata in firmware"));
+    // This firmware never brings the compass up: mag_ok is not set true anywhere.
+    notifyPhone(String("SYS_DIAG:compass_init|") + (mag_ok ? "started" : "NOT started by this firmware"));
     delay(BLE_NOTIFY_GAP_MS);
 
-    notifyPhone("SYS_DIAG:radio|" + String(health.radioOk ? "ok" : "ESUAT err=" + String(health.radioError)));
+    // Both ternary branches must be String; a const char* branch will not compile.
+    String radioNote = health.radioOk ? String("ok")
+                                      : String("FAILED err=") + String(health.radioError);
+    notifyPhone("SYS_DIAG:radio|" + radioNote);
     delay(BLE_NOTIFY_GAP_MS);
-    notifyPhone("SYS_DIAG:sensors|gps=" + String(gps_ok ? "ok" : "nu")
-                + " imu=" + String(imu_ok ? "ok" : "nu")
-                + " sht=" + String(sht_ok ? "ok" : "nu")
-                + " sd="  + String(sdDetected ? "ok" : "nu"));
+    notifyPhone("SYS_DIAG:sensors|gps=" + String(gps_ok ? "ok" : "no")
+                + " imu=" + String(imu_ok ? "ok" : "no")
+                + " sht=" + String(sht_ok ? "ok" : "no")
+                + " sd="  + String(sdDetected ? "ok" : "no"));
     delay(BLE_NOTIFY_GAP_MS);
 
-    notifyPhone("SYS_DIAG:memory|liber " + String(ESP.getFreeHeap() / 1024) + " KB, cel mai mare bloc "
+    notifyPhone("SYS_DIAG:memory|free " + String(ESP.getFreeHeap() / 1024) + " KB, largest block "
                 + String(ESP.getMaxAllocHeap() / 1024) + " KB");
     delay(BLE_NOTIFY_GAP_MS);
     notifyPhone("SYS_DIAG:uptime|" + String(millis() / 60000) + " min");
     delay(BLE_NOTIFY_GAP_MS);
-    notifyPhone("SYS_DIAG:airtime|" + String(meshDutyPercent()) + "% din bugetul orar");
+    notifyPhone("SYS_DIAG:airtime|" + String(meshDutyPercent()) + "% of the hourly budget");
     delay(BLE_NOTIFY_GAP_MS);
     notifyPhone("SYS_DIAG:version|" + String(OS_VERSION));
 

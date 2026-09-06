@@ -67,8 +67,7 @@ void scanKMLFiles() {
 
 #include "glyph_kml_parser.h"
 
-// Deschide fisierul si lasa sablonul din glyph_kml_parser.h sa faca parsarea.
-// Sablonul e separat ca sa poata fi rulat si pe PC, peste un flux fals - vezi test/.
+// The parser template is separate so it can also run on a PC. See test/.
 static void forEachKmlPoint(String path, KmlPointFn onPoint) {
     if (path == "" || path == "[ NO OVERLAY ]" || !sdDetected) return;
 
@@ -83,12 +82,8 @@ static void forEachKmlPoint(String path, KmlPointFn onPoint) {
     f.close();
 }
 
-// Overlay-ul incarcat, tinut in RAM.
-//
-// Inainte, drawKMLOverlay() recitea tot fisierul de pe card la FIECARE
-// redesenare a hartii - o functie de desenare care face I/O de disc. Pe un
-// traseu lung asta insemna secunde bune de asteptare la fiecare apasare de buton.
-// Acum fisierul se citeste o singura data, la selectie.
+// Overlay held in RAM: the file is read once, at selection. Drawing must not
+// touch the card, or every map redraw costs seconds on a long route.
 KmlPoint kmlCachePoints[MAX_KML_CACHE_POINTS];
 int  kmlCachePointCount = 0;
 
@@ -103,9 +98,8 @@ void loadKMLCache() {
 
     float prevLat = -999, prevLon = -999;
 
-    // Un traseu poate avea mai multe puncte decat incap. In loc sa il taiem la
-    // jumatate, il subtiem: cand bufferul se umple, pastram fiecare al doilea
-    // punct si dublam pasul. Rezultatul e traseul intreg, cu mai putine detalii.
+    // A route can have more points than fit. Instead of cutting it short, thin
+    // it: when the buffer fills, keep every second point and double the stride.
     int stride = 1;
     int seen   = 0;
 
@@ -119,15 +113,13 @@ void loadKMLCache() {
 
         if (prevLat != -999 && prevLon != -999) {
             float legDist = calculateDistance(prevLat, prevLon, lat, lon);
-            // Sarituri de peste 50 km intre doua puncte consecutive inseamna
-            // date corupte, nu deplasare - nu le adunam in total.
+            // A jump over 50 km between points is corrupt data, not travel.
             if (legDist < 50.0) kmlCacheDistance += legDist;
         }
         prevLat = lat;
         prevLon = lon;
 
-        // Un inceput de segment se pastreaza intotdeauna: fara el, doua trasee
-        // separate ar aparea unite printr-o linie dreapta.
+        // Segment starts are always kept, or separate tracks get joined by a line.
         bool mustKeep = newSegment;
 
         if (!mustKeep && (seen % stride) != 0) { seen++; return; }
@@ -143,7 +135,7 @@ void loadKMLCache() {
             kmlCachePointCount = kept;
             stride *= 2;
 
-            if (kmlCachePointCount >= MAX_KML_CACHE_POINTS) return; // buffer plin de inceputuri
+            if (kmlCachePointCount >= MAX_KML_CACHE_POINTS) return; // buffer full of segment starts
         }
 
         kmlCachePoints[kmlCachePointCount].lat = lat;
@@ -157,7 +149,6 @@ void loadKMLCache() {
     }
 }
 
-// Deseneaza din RAM. Fara acces la card, deci poate fi apelata la fiecare cadru.
 void drawKMLOverlay(double centerLat, double centerLon, float scale,
                     float cosLat, int cx, int cy) {
     if (!kmlCacheValid || kmlCachePointCount == 0) return;
@@ -171,7 +162,7 @@ void drawKMLOverlay(double centerLat, double centerLon, float scale,
         long px_raw = cx + (kmlCachePoints[i].lon - centerLon) * scale * cosLat;
         long py_raw = cy - (kmlCachePoints[i].lat - centerLat) * scale;
 
-        // Coordonatele foarte departe de ecran ar depasi intervalul lui int.
+        // Coordinates far off screen would overflow int.
         if (px_raw >  30000) px_raw =  30000;
         if (px_raw < -30000) px_raw = -30000;
         if (py_raw >  30000) py_raw =  30000;
@@ -180,8 +171,6 @@ void drawKMLOverlay(double centerLat, double centerLon, float scale,
         int px = (int)px_raw;
         int py = (int)py_raw;
 
-        // Un punct care cade exact peste cel anterior nu adauga nimic vizual,
-        // dar costa un drawLine - la trasee lungi economiseste mult timp.
         if (!isFirstPoint && px == prevX && py == prevY) continue;
 
         if (!isFirstPoint) display.drawLine(prevX, prevY, px, py, GxEPD_BLACK);
@@ -230,8 +219,8 @@ void logGPS(double lat, double lon, float alt) {
         if (imuMoving) {
             if (dMeters < GPS_MOVING_MIN_STEP_M) return;
         } else {
-            // Fara miscare confirmata de IMU, pragul e mult mai mare: altfel am
-            // inregistra drift-ul GPS ca pe o plimbare.
+            // Without IMU-confirmed movement the threshold is much larger, or
+            // GPS drift gets logged as walking.
             if (dMeters < GPS_STATIC_MIN_STEP_M) return;
         }
         

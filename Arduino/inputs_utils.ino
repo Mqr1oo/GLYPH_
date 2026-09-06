@@ -52,15 +52,10 @@ bool processVirtualCommand(String cmd) {
         secureMode = (state == "ON");
         requestUIUpdate = true;
         fullRefreshNeeded = false;
-        // Inainte trimiteam "[SYS] Secure Mode: ON", iar aplicatia il afisa ca
-        // pe un mesaj in chat - la fiecare comutare, doua randuri de gunoi in
-        // conversatie. Acum e o notificare de stare, pe care aplicatia o
-        // foloseste ca sa aprinda butonul si insigna din antet.
         notifyPhone(secureMode ? "SYS_SEC:1" : "SYS_SEC:0");
         return true;
     }
 
-    // --- cardul SD, vazut de pe telefon ---
     if (cmd == "CMD_LS") {
         sendSDListing();
         return true;
@@ -76,40 +71,44 @@ bool processVirtualCommand(String cmd) {
         return true;
     }
 
-    // --- ruta planificata pe telefon, scrisa pe cardul aparatului ---
     if (cmd.startsWith("CMD_PUT:"))  { startUpload(cmd.substring(8));  return true; }
     if (cmd.startsWith("CMD_PUTD:")) { uploadChunk(cmd.substring(9));  return true; }
     if (cmd == "CMD_PUTEND")         { finishUpload();                 return true; }
     if (cmd == "CMD_PUTABORT")       { abortUpload(NULL);              return true; }
 
-    // --- actualizare firmware prin Bluetooth ---
     if (cmd.startsWith("CMD_OTA:"))  { startOta((uint32_t)cmd.substring(8).toInt()); return true; }
     if (cmd.startsWith("CMD_OTAD:")) { otaChunk(cmd.substring(9));                   return true; }
     if (cmd == "CMD_OTAEND")         { finishOta();                                  return true; }
     if (cmd == "CMD_OTAABORT")       { abortOta(NULL);                               return true; }
 
-    // --- masurarea razei ---
     if (cmd == "CMD_PING")           { sendRangePing();                              return true; }
 
-    // Oprirea SOS-ului de pe telefon. Exista pentru ca SOS-ul nu se mai
-    // opreste singur: daca esti imobilizat si aparatul e in rucsac, butoanele
-    // lui nu-ti sunt de niciun folos.
+    // Phone-side SOS stop. SOS never stops on its own, and the device buttons
+    // are out of reach if the user is immobilised and the device is in a pack.
     if (cmd == "CMD_SOS_STOP")       { stopSosCompletely();                          return true; }
     if (cmd == "CMD_SOS_START")      { startSosBroadcast();                          return true; }
 
-    // --- diagnostic: ce raspunde pe magistrala I2C ---
     if (cmd == "CMD_DIAG")           { reportDiagnostics();                          return true; }
 
-    // Telefonul cere starea imediat dupa conectare, ca sa nu astepte ciclul de
-    // telemetrie de 5 secunde ca sa afle in ce mod e aparatul.
     if (cmd == "CMD_STATE") {
         notifyPhone(secureMode ? "SYS_SEC:1" : "SYS_SEC:0"); delay(BLE_NOTIFY_GAP_MS);
         notifyPhone("SYS_TEAMNAME:" + myTeam);            delay(BLE_NOTIFY_GAP_MS);
         notifyPhone("SYS_PWR:" + String((int)currentPowerMode)); delay(BLE_NOTIFY_GAP_MS);
         notifyPhone(sdDetected ? "SYS_SD:1" : "SYS_SD:0"); delay(BLE_NOTIFY_GAP_MS);
-        // Versiunea, ca telefonul sa poata spune daca aparatul a ramas in urma
-        // fata de binarul publicat pe site.
-        notifyPhone("SYS_VER:" + OS_VERSION);
+        notifyPhone("SYS_VER:" + OS_VERSION); delay(BLE_NOTIFY_GAP_MS);
+        // Chunk size in raw bytes. The phone must not guess it: anything larger
+        // than the receive buffer arrives truncated and base64 decoding fails.
+        // Old firmware does not answer, and the app keeps its safe default.
+        notifyPhone("SYS_BUF:" + String(SD_UPLOAD_CHUNK_BYTES)); delay(BLE_NOTIFY_GAP_MS);
+
+        // The file the device is writing the track into. The phone needs the
+        // name to fetch the stretch it missed while the link was down: its own
+        // copy has a hole, the card does not.
+        if (isRecording && strlen(currentRecordDate) > 0) {
+            notifyPhone("SYS_RECFILE:route_" + String(currentRecordDate) + ".kml");
+        } else {
+            notifyPhone("SYS_RECFILE:");
+        }
         return true;
     }
 
@@ -276,9 +275,6 @@ void checkSerialInput() {
     }
 }
 
-// Cele doua editoare de text (mesaj si nume de echipa) aveau blocuri identice
-// de tratare a butoanelor; difereau doar prin variabila editata si prin limita
-// de lungime.
 void handleTextEditorButtons(bool pA, bool pB, bool pC, bool bLongPressed,
                              String &draft, unsigned int maxLen) {
     int nChars = (int)strlen(kbChars);
@@ -302,8 +298,6 @@ void handleTextEditorButtons(bool pA, bool pB, bool pC, bool bLongPressed,
     }
 }
 
-// Selectorul de limba apare de doua ori: la prima pornire si in meniu.
-// Singura diferenta e pagina catre care se iese dupa confirmare.
 void handleLanguageButtons(bool pA, bool pB, bool pC, SystemState nextState) {
     if (pA) {
         if (tempLangSelection > 0) tempLangSelection--; else tempLangSelection = LANG_COUNT - 1;
@@ -320,7 +314,6 @@ void handleLanguageButtons(bool pA, bool pB, bool pC, SystemState nextState) {
     }
 }
 
-// La fel pentru selectorul de fus orar - ambele variante ies in meniul principal.
 void handleUtcOffsetButtons(bool pA, bool pB, bool pC) {
     if (pA) {
         if (tempTimeSelection > -12) tempTimeSelection--;
@@ -352,10 +345,8 @@ void handleButtons() {
     
     bool inSetup = inSetupPage();
 
-    // Orice apasare in timpul difuzarii SOS o opreste. Inainte nu aveai cum:
-    // bucla de 10 secunde nu returna in loop(), deci butoanele nu erau citite.
-    // Orice apasare in timpul SOS il opreste definitiv, nu doar runda curenta:
-    // altfel ar reporni singur peste un minut si omul ar crede ca l-a oprit.
+    // Any press during SOS stops it for good, not just the current round.
+    // Otherwise it restarts a minute later and the user thinks it is off.
     if (sosArmed() && (pA || pB || pC || cA || cB || cC)) {
         stopSosCompletely();
         latched_pA = false; latched_pB = false; latched_pC = false;
@@ -414,7 +405,7 @@ void handleButtons() {
                             }
                             
       
-                            // FIX: strncpy nu pune '\0' daca sursa umple bufferul.
+                            // strncpy writes no '\0' when the source fills the buffer.
                             strncpy(currentRecordDate, finalName.c_str(), sizeof(currentRecordDate) - 1);
                             currentRecordDate[sizeof(currentRecordDate) - 1] = '\0';
 
@@ -510,10 +501,6 @@ void handleButtons() {
             u8g2Fonts.print("FOR 10 SECONDS...");
             display.updateWindow(0, 0, display.width(), display.height(), true);
 
-            // Difuzarea nu se mai face intr-o bucla care tine aparatul ostatic
-            // 10 secunde. startSosBroadcast() doar porneste, iar
-            // serviceSosBroadcast() trimite cate un pachet pe tura de loop().
-            // Intre pachete, butoanele si ecranul raspund normal - si poti anula.
             startSosBroadcast();
 
             requestUIUpdate = true; fullRefreshNeeded = false; pingActivity();
@@ -541,13 +528,11 @@ void handleButtons() {
                 acTriggered = true;
                 virt_comboAC = false;
 
-                // FIX FUNCTIONAL MAJOR: A+C facea tot un SOS, identic cu B+C.
-                // README-ul si butonul "Shutdown" din aplicatia de telefon (care
-                // trimite exact "AC@") asteapta deep sleep. Apasarea butonului de
-                // shutdown din telefon declansa in realitate un SOS pe 10 secunde.
+                // A+C is shutdown, not SOS. The README and the phone app's
+                // Shutdown button both send exactly "AC@" and expect deep sleep.
                 notifyPhone("[SYS] Shutting down...");
                 enterDeepSleep8Min(true);
-                // enterDeepSleep8Min() nu se intoarce niciodata.
+                // enterDeepSleep8Min() never returns.
             }
         }
         return; 
@@ -735,9 +720,8 @@ void handleButtons() {
         else if (pB) { 
             prefs.putFloat("freq", currentFreq); 
             prefs.putString("version", OS_VERSION); 
-            // FIX: aici se seta SF9 / 17 dBm, iar peste tot in rest SF11 / 22 dBm.
-            // Un aparat configurat de la butoane nu putea comunica cu unul
-            // configurat prin serial/telefon.
+            // beginRadio(), not hand-set SF/power. Setting them here once left
+            // button-configured devices unable to talk to serial-configured ones.
             beginRadio(currentFreq);
             currentState = PAGE_INIT_NAME;
             fullRefreshNeeded = false; 
@@ -828,16 +812,14 @@ void handleButtons() {
 }
 
 // ---------------------------------------------------------------------------
-// Difuzarea SOS
+// SOS broadcast
 // ---------------------------------------------------------------------------
 //
-// Varianta veche era o bucla while care transmitea 10 secunde. In tot acel timp
-// loop() nu mai rula: butoanele nu raspundeau, ecranul era inghetat si nu aveai
-// cum sa opresti difuzarea daca ai apasat din greseala.
-//
-// Acum e o stare: startSosBroadcast() o porneste, serviceSosBroadcast() e
-// apelata din loop() si trimite cel mult un pachet pe tura. Intre pachete,
-// restul sistemului merge normal.
+// A state machine, not a blocking burst. startSosBroadcast() only arms it;
+// serviceSosBroadcast() runs from loop() and sends at most one packet per pass,
+// so buttons and screen keep working and an accidental SOS can be cancelled.
+// The old version transmitted inside a 10 second while loop, during which
+// loop() never ran.
 
 static bool          sosRunning     = false;
 static unsigned long sosStartedAt   = 0;
@@ -846,17 +828,16 @@ static int           sosPacketCount = 0;
 static String        sosPayload     = "";
 static String        sosDisplayMsg  = "";
 
-// SOS-ul nu se mai opreste dupa rafala initiala. Intra intr-o stare de veghe si
-// se repeta la intervale care cresc, pana il anulezi tu sau moare bateria. Un
-// SOS de zece secunde care prinde exact momentul in care nimeni nu asculta e un
-// SOS pierdut - iar cine il asteapta nu are de unde sti asta.
-static bool          sosStandby     = false;   // in pauza intre reluari
+// SOS does not stop after the first burst. It goes to standby and repeats on
+// widening intervals until the user cancels or the battery dies. A ten second
+// SOS that lands while nobody is listening is a lost SOS.
+static bool          sosStandby     = false;   // waiting between rounds
 static unsigned long sosNextRepeat  = 0;
 static int           sosRepeatIndex = 0;
 static int           sosTotalRounds = 0;
 
-// Aparatul e "in SOS" si cat timp asteapta urmatoarea reluare: asa nu adoarme
-// si nu isi stinge radioul intre reluari.
+// Armed covers the wait between rounds too, so the device neither sleeps nor
+// shuts the radio down in the gaps.
 bool sosActive()  { return sosRunning; }
 bool sosArmed()   { return sosRunning || sosStandby; }
 int  sosRounds()  { return sosTotalRounds; }
@@ -879,9 +860,9 @@ void startSosBroadcast() {
     sosDisplayMsg = myName + " SOS! LAT:" + String(sLat, 5) + " LON:" + String(sLon, 5);
     sosPayload    = sosDisplayMsg + "|" + String(sLat, 5) + "," + String(sLon, 5);
 
-    // Ramanem pe acelasi spreading factor ca restul sistemului. Varianta veche
-    // trecea pe SF12 si nu il mai punea niciodata inapoi, deci dupa un SOS
-    // aparatul transmitea pe un SF pe care nimeni nu il asculta, pana la reboot.
+    // Stay on the system spreading factor. An older version switched to SF12 and
+    // never set it back, so after an SOS the device transmitted on an SF nobody
+    // was listening to, until reboot.
     radio.setSpreadingFactor(LORA_SPREADING_FACTOR);
 
     sosRunning     = true;
@@ -896,9 +877,8 @@ void startSosBroadcast() {
     notifyPhone("[SYS] SOS BROADCASTING!");
 }
 
-// Reluare: acelasi text, dar cu pozitia de ACUM. Daca te-ai miscat sau ai
-// prins fix intre timp, reluarea cara informatia noua - o pozitie veche de o
-// ora trimite oamenii unde nu mai esti.
+// A repeat carries the position as of now. An hour-old position sends people
+// where the user no longer is.
 static void restartSosRound() {
     double sLat, sLon;
     getGpsPosition(sLat, sLon);
@@ -916,7 +896,6 @@ static void restartSosRound() {
     notifyPhone("SYS_SOS:1|" + String(sosTotalRounds));
 }
 
-// Oprirea definitiva, ceruta de om.
 void stopSosCompletely() {
     if (!sosRunning && !sosStandby) return;
     cancelSosBroadcast(true);
@@ -926,7 +905,6 @@ void stopSosCompletely() {
     notifyPhone("[SYS] SOS stopped after " + String(sosTotalRounds) + " rounds");
 }
 
-// Oprire manuala: orice apasare in timpul difuzarii.
 void cancelSosBroadcast(bool byUser) {
     if (!sosRunning) return;
     sosRunning = false;
@@ -946,7 +924,6 @@ void cancelSosBroadcast(bool byUser) {
 }
 
 void serviceSosBroadcast() {
-    // In pauza dintre reluari: asteptam scadenta si repornim.
     if (sosStandby) {
         if ((int32_t)(millis() - sosNextRepeat) >= 0) restartSosRound();
         return;
@@ -957,9 +934,9 @@ void serviceSosBroadcast() {
     if (millis() - sosStartedAt >= SOS_BROADCAST_MS) {
         cancelSosBroadcast(false);
 
-        // Nu s-a terminat - doar intra in veghe pana la urmatoarea reluare.
-        // Intervalele cresc: des la inceput, cand sansa ca cineva sa fie in
-        // raza e mai mare, apoi tot mai rar ca bateria sa tina ore intregi.
+        // Not finished - it waits for the next round. Intervals widen: frequent
+        // at first, when someone is likelier to be in range, then rarer so the
+        // battery lasts for hours.
         int idx = sosRepeatIndex;
         if (idx >= SOS_REPEAT_STEPS) idx = SOS_REPEAT_STEPS - 1;
         sosNextRepeat = millis() + (unsigned long)SOS_REPEAT_SECONDS[idx] * 1000UL;
@@ -972,7 +949,7 @@ void serviceSosBroadcast() {
     if (sosLastPacket != 0 && millis() - sosLastPacket < SOS_PACKET_GAP_MS) return;
 
     String packet = buildPacket(MSG_SOS, sosPayload, secureMode, MESH_HOPS_SOS);
-    if (packet.length() == 0) {          // criptarea a esuat
+    if (packet.length() == 0) {          // encryption failed
         sosRunning = false;
         notifyPhone("[SYS] SOS encryption failed");
         return;

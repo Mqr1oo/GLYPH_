@@ -16,14 +16,14 @@ class MyServerCallbacks: public BLEServerCallbacks {
 
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
-        // auto: getValue() intoarce std::string pe core 2.x si String pe core 3.x
+        // auto: getValue() returns std::string on core 2.x, String on core 3.x.
         auto rxValue = pCharacteristic->getValue();
         const char* src = rxValue.c_str();
         size_t n = rxValue.length();
         if (n == 0) return;
         if (n >= BLE_RX_BUF_SIZE) n = BLE_RX_BUF_SIZE - 1;
 
-        // Doar memcpy in sectiunea critica - fara alocari de memorie.
+        // memcpy only inside the critical section: no allocation here.
         portENTER_CRITICAL(&bleMux);
         memcpy((void*)bleRxBuffer, src, n);
         bleRxBuffer[n] = '\0';
@@ -34,9 +34,8 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 
 void initBLE() {
     BLEDevice::init("GLYPH");
-    // Fara asta raman 20 de octeti utili per notificare, iar un traseu de
-    // 40 KB s-ar descarca in minute. Daca telefonul nu accepta, se negociaza
-    // in jos automat - nu e nimic de tratat aici.
+    // Without this only 20 bytes per notification are usable and a 40 KB track
+    // takes minutes to download. A phone that refuses negotiates down by itself.
     BLEDevice::setMTU(BLE_REQUESTED_MTU);
     pServer = BLEDevice::createServer();
     pServer->setCallbacks(new MyServerCallbacks());
@@ -68,15 +67,19 @@ void sendTelemetryBLE() {
     if (deviceConnected && millis() - lastBleTelemetry > BLE_TELEMETRY_INTERVAL_MS) {
         lastBleTelemetry = millis();
 
-        // Buffere fixe in loc de concatenari de String. Blocul asta ruleaza la
-        // fiecare 5 secunde cat timp telefonul e conectat - adica de sute de ori
-        // pe ora - deci era una dintre principalele surse de fragmentare a
-        // heap-ului, care se manifesta ca un reset "aleator" dupa multe ore.
+        // Fixed buffers, not String concatenation: this runs every few seconds
+        // while the phone is connected and was a main source of heap
+        // fragmentation, which showed up as a random reset after hours.
         char buf[64];
 
-        // Pauzele exista fiindca stiva BLE are o coada mica: sase notificari
-        // trimise una dupa alta se pierdeau pe drum.
-        snprintf(buf, sizeof(buf), "SYS_BATT:%d", getBatteryPercent());
+        // The gaps are required: the BLE queue is small and back-to-back
+        // notifications were lost.
+        // While charging this is the charge estimate, which starts at the last
+        // resting reading and climbs; otherwise the real level.
+        snprintf(buf, sizeof(buf), "SYS_BATT:%d", batteryChargePercent());
+        notifyPhone(buf); delay(BLE_NOTIFY_GAP_MS);
+
+        snprintf(buf, sizeof(buf), "SYS_CHG:%d", batteryCharging() ? 1 : 0);
         notifyPhone(buf); delay(BLE_NOTIFY_GAP_MS);
 
         snprintf(buf, sizeof(buf), "SYS_SATS:%u", (unsigned)lastSIV);
@@ -87,7 +90,6 @@ void sendTelemetryBLE() {
             getGpsPosition(bLat, bLon);
             snprintf(buf, sizeof(buf), "SYS_GPS:%.6f,%.6f", bLat, bLon);
         } else {
-            // Aplicatia cauta exact textul asta; firmware-ul nu il trimitea niciodata.
             snprintf(buf, sizeof(buf), "SYS_GPS:NO FIX");
         }
         notifyPhone(buf); delay(BLE_NOTIFY_GAP_MS);
@@ -100,7 +102,6 @@ void sendTelemetryBLE() {
             notifyPhone(buf); delay(BLE_NOTIFY_GAP_MS);
         }
 
-        // Ce nu merge, raportat si catre telefon - nu doar pe ecran.
         String bad = healthBadge();
         snprintf(buf, sizeof(buf), "SYS_HEALTH:%s", bad.length() ? bad.c_str() : "OK");
         notifyPhone(buf); delay(BLE_NOTIFY_GAP_MS);
@@ -110,9 +111,7 @@ void sendTelemetryBLE() {
         snprintf(buf, sizeof(buf), "SYS_SD:%d", sdDetected ? 1 : 0);
         notifyPhone(buf);
 
-        // Colegii de echipa auziti pe radio, ca sa-i poata desena telefonul pe
-        // harta. Varsta in secunde conteaza: o pozitie de acum 20 de minute nu
-        // mai spune unde e omul, si aplicatia o arata stinsa.
+        // Age in seconds matters: the app dims a stale position.
         for (int i = 0; i < teammateCount && i < MAX_TEAMMATES; i++) {
             if (teammates[i].name.length() == 0) continue;
             unsigned long ageSec = (millis() - teammates[i].lastSeen) / 1000UL;

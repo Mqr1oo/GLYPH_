@@ -1,31 +1,21 @@
 //file name:sensors.ino
 //
-// FIX MAJOR (scroll greoi cand GPS-ul e conectat):
-// Vechiul cod avea butoanele SI GPS-ul in ACELASI task, sub ACELASI mutex I2C.
-// Odata pe secunda se apela myGNSS.getPositionAccuracy(), care trimite
-// UBX-NAV-HPPOSECEF si asteapta implicit 1100 ms. SAM-M8Q nu suporta acel mesaj,
-// deci apelul astepta MEREU timeout-ul complet -> ~1.2 s pe secunda in care
-// mutexul era ocupat si butoanele NU erau citite deloc.
-// Rezultat: apasarile se pierdeau, scroll-ul parea "mort".
+// Buttons are polled in their own high priority task, separate from everything
+// slow that touches I2C. Buttons and GPS used to share one task and one mutex:
+// getPositionAccuracy() sends UBX-NAV-HPPOSECEF, which the SAM-M8Q does not
+// support, so the call always waited out its 1100 ms timeout holding the mutex
+// and presses were lost.
 //
-// Solutia are 3 parti:
-//   1) getPositionAccuracy() -> getHorizontalAccEst() (hAcc vine deja in pachetul
-//      NAV-PVT, zero tranzactii I2C in plus, zero asteptare).
-//   2) setAutoPVT(true): modulul impinge singur PVT-ul, getPVT() devine
-//      ne-blocant in loc sa faca poll cu asteptare.
-//   3) Butoanele au task propriu, cu prioritate mai mare si perioada 15 ms,
-//      complet separat de task-ul lent de senzori.
-
-// ---------------------------------------------------------------------------
-// TASK RAPID: doar butoanele. Prioritate mare, 15 ms, hold I2C foarte scurt.
-// ---------------------------------------------------------------------------
+// Two things must stay or the stall returns: accuracy from getHorizontalAccEst()
+// (hAcc is already in NAV-PVT, no extra I2C), and setAutoPVT(true), which keeps
+// getPVT() non-blocking.
 void buttonTask(void * pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     bool lastA = false, lastB = false, lastC = false;
 
     for (;;) {
         if (buttons_ok) {
-            // 60 ms e suficient: nimeni nu mai tine mutexul mai mult de ~30 ms.
+            // 60 ms is enough: no holder keeps the I2C mutex longer than ~30 ms.
             if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(60)) == pdTRUE) {
                 mButtons.update();
                 bool a = mButtons.isPressed(0);
@@ -50,18 +40,14 @@ void buttonTask(void * pvParameters) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// TASK LENT: IMU la 100 ms, GPS + SHT40 la 1 s. Prioritate mica.
-// Fiecare bloc I2C isi ia mutexul separat si il elibereaza imediat,
-// ca sa nu blocheze niciodata task-ul de butoane.
-// ---------------------------------------------------------------------------
+// Slow task. Every I2C block takes the mutex on its own and releases it at once,
+// so it can never block the button task.
 void sensorTask(void * pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     unsigned long lastSlowSensorTick = 0;
 
     for (;;) {
 
-        // ---- IMU (detectie miscare) ----
         if (imu_ok) {
             if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
                 sensors_event_t a, g, tm;
@@ -78,14 +64,13 @@ void sensorTask(void * pvParameters) {
             }
         }
 
-        // ---- GPS + mediu, o data pe secunda ----
         if (millis() - lastSlowSensorTick > 1000) {
             lastSlowSensorTick = millis();
 
             if (gps_ok && currentPowerMode != STEALTH_MODE) {
                 if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(30)) == pdTRUE) {
-                    // Cu setAutoPVT(true) apelul asta NU blocheaza: intoarce true
-                    // doar daca modulul a livrat deja un pachet PVT proaspat.
+                    // With setAutoPVT(true) this does not block: it returns true
+                    // only if the module already delivered a fresh PVT packet.
                     bool fresh = myGNSS.getPVT(0);
                     if (fresh) {
                         hasGpsFix   = myGNSS.getGnssFixOk();
@@ -101,16 +86,14 @@ void sensorTask(void * pvParameters) {
                         }
 
                         if (hasGpsFix) {
-                            // Scriere atomica: loop() de pe celalalt core nu mai poate
-                            // citi jumatate din latitudinea noua cu jumatate din cea veche.
+                            // Atomic write: loop() on the other core cannot read half of
+                            // a new latitude together with half of an old one.
                             setGpsPosition((double)myGNSS.getLatitude() / 1e7,
                                            (double)myGNSS.getLongitude() / 1e7,
                                            myGNSS.getAltitudeMSL() / 1e3);
                             lastSIV = myGNSS.getSIV();
 
-                            // hAcc vine din acelasi pachet NAV-PVT, in mm -> metri.
-                            // (inainte: getPositionAccuracy(), 1100 ms de blocaj)
-                            lastAccuracy = myGNSS.getHorizontalAccEst() / 1000.0f;   // mm -> metri
+                            lastAccuracy = myGNSS.getHorizontalAccEst() / 1000.0f;   // mm -> meters
 
                             currentSpeed   = (float)myGNSS.getGroundSpeed() * 0.0036f;
                             currentHeading = (float)myGNSS.getHeading() / 100000.0f;

@@ -1,16 +1,12 @@
 #pragma once
 //
-// Tokenizerul de fisiere KML, scris ca sablon peste tipul de flux.
-//
-// Pe aparat primeste un File de pe cardul SD. In teste primeste un flux fals
-// alimentat dintr-un sir - acelasi cod, aceleasi reguli de parsare, verificate
-// pe PC fara card si fara aparat.
-//
-// Bucla asta era duplicata identic in loadKMLCache() si in drawKMLOverlay():
-// acelasi parser de tag-uri, acelasi tokenizer, aceeasi hranire a watchdog-ului.
-// Singura diferenta reala era ce se face cu fiecare coordonata.
+// KML tokenizer, written as a template over the stream type. On the device the
+// stream is a File from the SD card; in tests it is a fake stream fed from a
+// string. Same code, same parse rules, verified on a PC with no card and no
+// device.
 
-// Pe PC nu exista yield(); pe aparat, fara el, un KML mare declanseaza watchdog-ul.
+// There is no yield() on a PC. On the device, without it, a large KML trips the
+// watchdog.
 #ifndef GLYPH_KML_YIELD
   #ifdef ARDUINO
     #define GLYPH_KML_YIELD() yield()
@@ -19,8 +15,8 @@
   #endif
 #endif
 
-// Stream trebuie sa ofere available() si read().
-// onPoint(lat, lon, newSegment) se apeleaza pentru fiecare coordonata valida.
+// Stream must provide available() and read().
+// onPoint(lat, lon, newSegment) is called for every valid coordinate.
 template <typename Stream, typename Fn>
 void parseKmlStream(Stream &f, Fn onPoint) {
     bool inCoords = false;
@@ -28,8 +24,8 @@ void parseKmlStream(Stream &f, Fn onPoint) {
     String token = "";
     int watchdogFeeder = 0;
 
-    // Interpreteaza un token "lon,lat[,alt]" si il paseaza mai departe.
-    // Ordinea lon,lat e cea din standardul KML, nu o inversiune accidentala.
+    // Token is "lon,lat[,alt]". The lon,lat order comes from the KML standard,
+    // it is not an accidental swap.
     auto emit = [&](String t) {
         t.trim();
         if (t.length() <= 3) return;
@@ -71,8 +67,8 @@ void parseKmlStream(Stream &f, Fn onPoint) {
             if (isspace((unsigned char)c)) {
                 if (token.length() > 0) { emit(token); token = ""; }
             } else {
-                // Limita de 64 opreste un fisier corupt sa creasca la nesfarsit
-                // un String in memorie.
+                // The 64 char cap stops a corrupt file from growing a String
+                // without bound.
                 if (token.length() < 64) token += c;
             }
         }

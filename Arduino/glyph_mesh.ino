@@ -1,50 +1,33 @@
 //file name:glyph_mesh.ino
+// Mesh relaying, acknowledgements and range measurement.
 //
-// RETEAUA MESH, CONFIRMARILE SI MASURAREA RAZEI
-//
-// Cum functioneaza, pe scurt: nu exista rute, nu exista tabele de vecini si nu
-// exista nimic de reglat. Fiecare aparat care aude un mesaj care nu e al lui si
-// care mai are salturi ramase asteapta putin si il retransmite - dar asteapta
-// cu ATAT MAI PUTIN cu cat l-a auzit mai SLAB.
-//
-// De ce asta alege drumul scurt: cine aude slab e departe de emitator, deci
-// retransmisia lui acopera cel mai mult teren nou; el vorbeste primul. Cine
-// aude tare e langa emitator si n-ar aduce nimic; el asteapta, aude
-// retransmisia celui indepartat, si renunta la a lui. Din cateva aparate
-// rezulta salturi lungi in directia buna, fara ca vreunul sa calculeze ceva.
-//
-// Aceeasi idee o folosesc si alte retele LoRa; e mai robusta decat rutarea
-// clasica exact pentru ca nu tine minte nimic, deci n-are ce sa devina gresit
-// cand oamenii se misca.
+// No routes and no neighbour tables. A device that hears a message not its own,
+// with hops left, waits and rebroadcasts it - waiting LESS the FAINTER it heard
+// it. See relayDelayMs in glyph_mesh_core.h for why that picks short paths.
 
 #include "glyph_mesh_core.h"
 
+static void transmitRaw(String pkt);
 static void sendPongNow();
 
 static DutyBudget duty;
 static MeshSeen   seen;
 
-// O singura retransmisie in asteptare. Doua ar insemna doua emisii una peste
-// alta, si oricum un aparat aflat intr-un loc atat de aglomerat nu e cel care
-// trebuie sa retransmita.
+// One pending relay only; a device in a spot that busy is not the one that should relay.
 static bool     relayPending  = false;
 static uint32_t relayDueAt    = 0;
 static String   relayPacket   = "";
 static uint16_t relayKey      = 0;
 static uint32_t relayCounter  = 0;
 
-// Confirmarea de primire, tot cu o mica intarziere: daca trei aparate din
-// echipa aud acelasi mesaj si raspund toate in aceeasi milisecunda, niciunul
-// nu se aude.
+// The ack is delayed and spread out, or simultaneous repliers drown each other.
 static bool     ackPending    = false;
 static uint32_t ackDueAt      = 0;
 static String   ackTo         = "";
 static uint32_t ackCounter    = 0;
 
-// Raspunsul la ping, tot amanat. Prima varianta folosea delay() ca sa imprastie
-// raspunsurile - adica bloca bucla pana la o secunda, exact bug-ul pentru care
-// nu mergeau butoanele cand GPS-ul era pornit. Se rezolva la fel: o stare si o
-// scadenta, servite din loop().
+// The pong is deferred the same way. It must not use delay(): blocking the loop
+// for up to a second is what made the buttons dead while the GPS was running.
 static bool     pongPending   = false;
 static uint32_t pongDueAt     = 0;
 static float    pongSnr       = 0.0f;
@@ -57,9 +40,7 @@ void meshBegin() {
 
 int meshDutyPercent() { duty.tick(millis()); return duty.percentUsed(); }
 
-// Lungimea folosita la calculul timpului de emisie e a pachetului intreg.
-// Trece prin glyphAirtimeMs din header, ca sa fie exact functia acoperita de
-// teste - nu o copie a ei care poate diverge in tacere.
+// Routed through glyphAirtimeMs so the function the tests cover is the one that runs.
 static uint32_t airtimeFor(int payloadLen) { return glyphAirtimeMs(payloadLen); }
 
 bool meshCanSend(int payloadLen) {
@@ -72,18 +53,14 @@ void meshNoteTransmit(int payloadLen) {
     duty.add(airtimeFor(payloadLen));
 }
 
-// ---------------------------------------------------------------------------
-// La receptie
-// ---------------------------------------------------------------------------
 void meshOnReceived(const String &raw, const GlyphMessage &msg, float snr, float rssi) {
     (void)rssi;
     if (!msg.valid) return;
 
     const uint16_t key = meshSenderKey(msg.sender.c_str());
 
-    // Am mai vazut mesajul asta? Atunci cineva l-a retransmis deja - si daca
-    // asteptam noi sa-l retransmitem, renuntam. Asta e mecanismul care face ca
-    // dintre cinci vecini sa vorbeasca in general doar unul.
+    // Already seen means someone else relayed it first, so drop our own pending
+    // relay. This is why usually only one of several neighbours speaks.
     if (seen.seen(key, msg.counter) && msg.counter != 0) {
         if (relayPending && relayKey == key && relayCounter == msg.counter) {
             relayPending = false;
@@ -93,15 +70,13 @@ void meshOnReceived(const String &raw, const GlyphMessage &msg, float snr, float
     }
     seen.remember(key, msg.counter, millis());
 
-    // Confirmarile si masuratorile de raza nu se retransmit niciodata: ar dubla
-    // traficul fara sa ajute pe nimeni.
+    // Acks, pings and pongs are never relayed.
     if (msg.type == MSG_ACK || msg.type == MSG_PING || msg.type == MSG_PONG) return;
 
     const bool mine = (msg.sender == myName);
 
-    // Confirmam doar mesajele de la echipa noastra - adica cele care au trecut
-    // prin decriptare reusita cu cheia echipei. Un strain nu primeste raspuns,
-    // deci nu ne poate face sa emitem la comanda.
+    // Ack only messages that decrypted with the team key. A stranger gets no
+    // reply, so no one can make this device transmit on command.
     if (msg.authentic && !mine && msg.type == MSG_TEXT && msg.counter != 0) {
         ackTo = msg.sender;
         ackCounter = msg.counter;
@@ -109,11 +84,11 @@ void meshOnReceived(const String &raw, const GlyphMessage &msg, float snr, float
         ackPending = true;
     }
 
-    if (!msg.meshCapable) return;    // aparat cu firmware vechi: nimic de retransmis
+    if (!msg.meshCapable) return;
 
     const bool isSos = (msg.type == MSG_SOS);
     if (!meshShouldRelay(msg.hopsLeft, msg.authentic, isSos, mine)) return;
-    if (currentPowerMode == STEALTH_MODE) return;   // modul silentios nu emite deloc
+    if (currentPowerMode == STEALTH_MODE) return;
 
     duty.tick(millis());
     if (!duty.canRelay(airtimeFor(raw.length()))) return;
@@ -128,10 +103,9 @@ void meshOnReceived(const String &raw, const GlyphMessage &msg, float snr, float
     relayPending = true;
 }
 
-// ---------------------------------------------------------------------------
-// Emisia amanata, servita din loop()
-// ---------------------------------------------------------------------------
-static void transmitRaw(const String &pkt) {
+// pkt is taken BY VALUE: RadioLib declares transmit(String&), a non-const
+// reference, so a const String will not bind to it.
+static void transmitRaw(String pkt) {
     radio.standby();
     radio.setSpreadingFactor(LORA_SPREADING_FACTOR);
     int st = radio.transmit(pkt);
@@ -144,13 +118,13 @@ void serviceMesh() {
     if (!health.radioOk) return;
     duty.tick(millis());
 
-    // Un SOS in curs are prioritate absoluta pe radio; nu ne bagam peste el.
+    // An active SOS owns the radio.
     if (sosActive()) return;
 
     if (ackPending && (int32_t)(millis() - ackDueAt) >= 0) {
         ackPending = false;
         sendAck(ackTo, ackCounter);
-        return;                       // o singura emisie per trecere prin loop
+        return;                       // one transmission per pass through loop()
     }
 
     if (pongPending && (int32_t)(millis() - pongDueAt) >= 0) {
@@ -167,13 +141,8 @@ void serviceMesh() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Confirmarea de primire
-//
-// "Trimis" si "auzit" sunt lucruri diferite, si pana acum aplicatia le
-// confunda. Confirmarea cara contorul mesajului confirmat, ca telefonul sa
-// stie exact care mesaj a ajuns si la cine.
-// ---------------------------------------------------------------------------
+// Sent and heard are different things. The ack carries the counter of the
+// message it confirms, so the phone knows which message arrived and from whom.
 void sendAck(const String &toWhom, uint32_t counter) {
     if (currentPowerMode == STEALTH_MODE) return;
 
@@ -181,20 +150,15 @@ void sendAck(const String &toWhom, uint32_t counter) {
     snprintf(buf, sizeof(buf), "%08lX", (unsigned long)counter);
     String payload = myName + ": " + String(buf) + ">" + toWhom;
 
-    // Confirmarile nu se retransmit: zero salturi.
+    // Acks are never relayed: zero hops.
     String pkt = buildPacket(MSG_ACK, payload, true, 0);
     if (pkt.length() == 0) return;
     if (!meshCanSend(pkt.length())) return;
     transmitRaw(pkt);
 }
 
-// ---------------------------------------------------------------------------
-// Masurarea razei
-//
-// Un ping care cere raspuns. Cine il aude raspunde cu RSSI si SNR-ul cu care
-// l-a auzit, plus pozitia lui. Aparatul care a cerut scrie totul pe card:
-// dupa o plimbare ai date reale despre antena ta, in loc de "merge cam bine".
-// ---------------------------------------------------------------------------
+// Range ping: whoever hears it replies with the RSSI and SNR it measured plus
+// its own position, and the requester logs the pair to the card.
 void sendRangePing() {
     if (currentPowerMode == STEALTH_MODE) { notifyPhone("[SYS] Stealth mode: radio silent"); return; }
 
@@ -212,14 +176,11 @@ void sendRangePing() {
     notifyPhone("[SYS] Range ping sent");
 }
 
-// Raspunsul la un ping primit, cu calitatea semnalului cu care l-am auzit.
 void replyToPing(const GlyphMessage &msg, float snr, float rssi) {
     (void)msg;
     if (currentPowerMode == STEALTH_MODE) return;
     pongSnr = snr;
     pongRssi = rssi;
-    // Aceeasi imprastiere ca la confirmari: daca raspund trei aparate deodata,
-    // nu se aude niciunul.
     pongDueAt = millis() + ACK_DELAY_MIN_MS + (esp_random() % ACK_DELAY_SPREAD_MS);
     pongPending = true;
 }
@@ -236,7 +197,6 @@ static void sendPongNow() {
     transmitRaw(pkt);
 }
 
-// Un rand in fisierul de masuratori de pe card.
 void logRangeSample(const String &peer, float rssi, float snr,
                     double peerLat, double peerLon) {
     if (!sdDetected) return;

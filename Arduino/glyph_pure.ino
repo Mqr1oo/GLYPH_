@@ -1,12 +1,10 @@
 //file name:glyph_pure.ino
 //
-// Logica fara hardware: conversia UTC -> ora locala si calculul distantei.
-//
-// Sta separat pentru ca poate fi compilata si rulata pe PC. Suita din test/
-// verifica getLocalDateTime() pe mii de combinatii de ora, offset si date de
-// granita (schimbari de luna, de an, ani bisecti) contra bibliotecii standard -
-// exact genul de cod unde o greseala nu se vede pana cand cineva inregistreaza
-// un traseu la 23:30 si fisierul primeste data de ieri.
+// Hardware-free logic: UTC to local time, and distance. Separate so it compiles
+// and runs on a PC. The suite in test/ checks getLocalDateTime() against the
+// standard library over thousands of hour, offset and boundary combinations
+// (month, year, leap year). Mistakes here stay invisible until someone records
+// a track at 23:30 and the file gets yesterday's date.
 
 double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
     const double R = 6371.0; 
@@ -22,12 +20,11 @@ double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
 
 
 // ---------------------------------------------------------------------------
-// Ora locala.
+// Local time.
 //
-// Peste tot in cod se scria (gpsHour + timeOffset + 24) % 24, ceea ce corecteaza
-// ora dar lasa ziua pe cea UTC. Pentru UTC+2, dupa ora 22:00 numele fisierelor
-// KML si CSV primeau data de ieri; pentru offset negativ, data de maine.
-// Aici se roteste si ziua, si luna, si anul.
+// (gpsHour + timeOffset + 24) % 24 fixes the hour but leaves the date on UTC.
+// At UTC+2, after 22:00 the KML and CSV file names got yesterday's date; with a
+// negative offset, tomorrow's. This rolls the day, the month and the year too.
 // ---------------------------------------------------------------------------
 static bool isLeapYear(int y) {
     return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
@@ -72,7 +69,6 @@ void getLocalDateTime(int &year, int &month, int &day,
     }
 }
 
-// "HH:MM" sau "HH:MMAM/PM", in functie de setare.
 String formatLocalTime() {
     if (!gpsTimeValid && !simActive) return "--:--";
 
@@ -90,7 +86,7 @@ String formatLocalTime() {
     return String(buf);
 }
 
-// "DD_MM_YYYY" - folosit in numele fisierelor de pe SD.
+// "DD_MM_YYYY", used in SD file names.
 String formatLocalDateFile() {
     if (!((gps_ok || simActive) && gpsTimeValid)) return String("00_00_0000");
 
@@ -102,7 +98,6 @@ String formatLocalDateFile() {
     return String(buf);
 }
 
-// "HH:MM:SS"
 String formatLocalTimeSec() {
     if (!((gps_ok || simActive) && gpsTimeValid)) return String("00:00:00");
 

@@ -1,14 +1,7 @@
 #pragma once
-//
-// Tipurile proprii ale proiectului stau intr-un header, nu in .ino.
-//
-// Motiv: builder-ul Arduino genereaza automat prototipuri pentru toate functiile
-// din fisierele .ino si le insereaza imediat dupa blocul de #include din sketch.
-// Daca o functie are in semnatura un enum definit mai jos in .ino (de exemplu
-// applyPowerMode(PowerMode)), prototipul generat apare INAINTE de definitia
-// enum-ului si compilarea esueaza cu un mesaj greu de legat de cauza.
-// Definit intr-un header inclus sus, tipul exista deja cand se insereaza
-// prototipurile.
+// Project types live in a header, not in a .ino: the Arduino builder inserts
+// generated prototypes right after the sketch include block, so a function
+// taking an enum defined later in the .ino would fail to compile.
 
 #include <Arduino.h>
 #include <functional>
@@ -38,9 +31,8 @@ enum PowerMode { NORMAL_MODE, ECO_MODE, STEALTH_MODE };
 
 struct GeoPoint { float lat; float lon; };
 
-// Un punct din overlay-ul KML, tinut in RAM dupa incarcare.
-// newSegment marcheaza inceputul unei linii noi, ca sa nu unim doua trasee
-// separate printr-o dreapta care traverseaza harta.
+// newSegment marks the start of a new line, so two separate tracks are not
+// joined by a straight line across the map.
 struct KmlPoint { float lat; float lon; bool newSegment; };
 
 struct Teammate {
@@ -48,80 +40,57 @@ struct Teammate {
     double lat;
     double lon;
     unsigned long lastSeen;
-    uint32_t lastCounter;   // ultimul contor acceptat, pentru anti-reluare
+    uint32_t lastCounter;   // last accepted counter, for replay rejection
 };
 
-// Callback pentru parcurgerea punctelor dintr-un fisier KML.
-// newSegment e true la primul punct dintr-un bloc <coordinates> nou.
+// newSegment is true on the first point of each new <coordinates> block.
 typedef std::function<void(float lat, float lon, bool newSegment)> KmlPointFn;
 
-// ---------------------------------------------------------------------------
-// Protocolul radio
-// ---------------------------------------------------------------------------
-//
-// Formatul mesajului era implicit: "nume: text|lat,lon", fara nimic care sa
-// spuna ce versiune urmeaza. Migrarea de la CBC la GCM a trebuit facuta prin
-// marcaje ad-hoc pe primul octet. Acum exista un antet propriu-zis, iar
-// urmatoarea schimbare de format nu mai are nevoie de trucuri.
-//
-// Pe fir:
-//   [0] marcaj de format
-//   [1] tip de mesaj (doar la v2)
-//   restul: text simplu (public) sau hex(nonce|ciphertext|tag) (securizat)
-//
-// In interiorul partii criptate, inaintea textului, sta un contor pe 32 de biti.
-// GCM garanteaza ca mesajul nu a fost modificat, dar nu ca e nou: fara contor,
-// cine iti inregistreaza un SOS azi il poate redifuza maine si ar fi acceptat
-// ca autentic, pentru ca este autentic - doar vechi.
+// --- Radio protocol ---
+// On the wire: [0] format marker, [1] message type (v2 and later), then plain
+// text (public) or hex(nonce|ciphertext|tag) (secure). The encrypted part
+// starts with a 32-bit counter: GCM proves a message was not modified, not
+// that it is new, so without it a recorded SOS could be replayed later and
+// would still verify as authentic.
 
-// v3 adauga UN SINGUR octet: cate salturi mai are voie sa faca mesajul. Sta
-// INAINTEA partii criptate, si nu inauntrul ei, fiindca fiecare releu trebuie
-// sa-l scada - iar daca ar fi sub semnatura GCM, orice modificare ar invalida
-// mesajul. Continutul ramane autentificat; doar contorul de salturi e in clar.
-// Cel mai rau lucru pe care il poate face cineva modificandu-l e sa opreasca
-// un mesaj din drum, ceea ce oricum putea face pur si simplu bruind.
-static const uint8_t PKT_V3_SECURE = 0xFB;   // antet + salturi + AES-GCM + contor
-static const uint8_t PKT_V3_PUBLIC = 0xFA;   // antet + salturi, necriptat
+// v3 adds one byte: remaining hops. It sits BEFORE the encrypted part because
+// every relay must decrement it; under the GCM tag any edit would invalidate
+// the message. Only the hop count is in the clear.
+static const uint8_t PKT_V3_SECURE = 0xFB;   // header + hops + AES-GCM + counter
+static const uint8_t PKT_V3_PUBLIC = 0xFA;   // header + hops, unencrypted
 
-static const uint8_t PKT_V2_SECURE = 0xFD;   // antet + AES-GCM + contor
-static const uint8_t PKT_V2_PUBLIC = 0xFC;   // antet, necriptat
-static const uint8_t PKT_V1_SECURE = 0xFE;   // AES-GCM fara antet (compatibilitate)
-static const uint8_t PKT_V0_SECURE = 0xFF;   // AES-CBC vechi (compatibilitate)
+static const uint8_t PKT_V2_SECURE = 0xFD;   // header + AES-GCM + counter
+static const uint8_t PKT_V2_PUBLIC = 0xFC;   // header, unencrypted
+static const uint8_t PKT_V1_SECURE = 0xFE;   // AES-GCM, no header (legacy)
+static const uint8_t PKT_V0_SECURE = 0xFF;   // old AES-CBC (legacy)
 
 enum MsgType : uint8_t {
     MSG_TEXT = 1,
     MSG_SOS  = 2,
-    // Confirmare de primire. Corpul e "nume: <contorul confirmat in hex>".
-    // Nu e retransmisa niciodata: ar dubla traficul fara sa aduca nimic.
+    // Delivery confirmation, body "name: <counter in hex>". Never relayed.
     MSG_ACK  = 3,
-    // Ping de masurare a razei; raspunsul cara RSSI si SNR cu care a fost auzit.
+    // Range ping; the reply carries the RSSI and SNR it was heard at.
     MSG_PING = 4,
     MSG_PONG = 5
 };
 
-// Rezultatul decodarii unui pachet receptionat.
 struct GlyphMessage {
-    bool     valid       = false;   // s-a putut decoda si autentifica
-    bool     authentic   = false;   // a trecut prin decriptare GCM reusita
-    bool     replay      = false;   // contor deja vazut de la acest expeditor
+    bool     valid       = false;
+    bool     authentic   = false;   // passed GCM decryption
+    bool     replay      = false;
     uint8_t  type        = MSG_TEXT;
     uint32_t counter     = 0;
-    String   sender;                // partea dinaintea lui ':'
-    String   body;                  // "nume: text", forma afisata
+    String   sender;                // part before the ':'
+    String   body;                  // "name: text", as displayed
     bool     hasCoords   = false;
     double   lat         = 0.0;
     double   lon         = 0.0;
-    uint8_t  hopsLeft    = 0;       // cate retransmisii mai are voie
-    bool     meshCapable = false;   // pachetul poarta antetul v3
+    uint8_t  hopsLeft    = 0;
+    bool     meshCapable = false;   // packet carries the v3 header
 };
 
-// ---------------------------------------------------------------------------
-// Starea perifericelor
-//
-// Inainte, daca radioul nu initializa, aparatul arata perfect normal si nu
-// transmitea nimic. Pentru un dispozitiv facut sa functioneze cand nimic
-// altceva nu mai functioneaza, esecul in tacere e cel mai prost mod de a esua.
-// ---------------------------------------------------------------------------
+// Peripheral status. A radio that fails to init leaves the device looking
+// normal while transmitting nothing, so the state is tracked and shown.
 struct DeviceHealth {
     bool radioOk = false;
     bool gpsOk   = false;
@@ -129,8 +98,8 @@ struct DeviceHealth {
     bool imuOk   = false;
     bool shtOk   = false;
     bool buttonsOk = false;
-    int  radioError = 0;    // codul returnat de RadioLib, daca a esuat
+    int  radioError = 0;    // RadioLib return code, if init failed
 
-    // Ce trebuie neaparat sa mearga ca aparatul sa-si faca treaba.
+    // What must work for the device to do its job.
     bool critical() const { return !radioOk || !buttonsOk; }
 };

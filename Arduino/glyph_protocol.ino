@@ -1,22 +1,10 @@
 //file name:glyph_protocol.ino
-//
-// Construirea si citirea pachetelor radio, separat de tot restul.
-//
-// Motivul separarii: astea sunt functii pure - primesc un sir, intorc un sir
-// sau o structura, nu ating hardware. Adica pot fi testate nativ pe PC, fara
-// aparat. Suita din test/ face exact asta, inclusiv round-trip complet prin
-// AES-GCM, folosind acelasi mbedtls.
+// Packet build and parse. Pure functions, no hardware, so the PC test suite
+// covers them, including a full AES-GCM round trip.
 
-// Contorul propriu, pastrat peste deep sleep. Creste la fiecare mesaj trimis.
 RTC_DATA_ATTR uint32_t txCounter = 0;
 
-// ---------------------------------------------------------------------------
-// Ajutoare de format
-// ---------------------------------------------------------------------------
-
-// Contorul se scrie ca 8 caractere hex, urmat de '~'. Am ales '~' fiindca nu
-// apare in kbChars, deci nu poate fi tastat de utilizator intr-un mesaj si nu
-// poate fi confundat cu continut.
+// '~' is not in kbChars, so a user cannot type it and it can never be mistaken for content.
 static const char COUNTER_SEP = '~';
 
 String encodeCounterPrefix(uint32_t counter) {
@@ -25,9 +13,7 @@ String encodeCounterPrefix(uint32_t counter) {
     return String(buf);
 }
 
-// Desparte "0000001A~restul" in contor si rest.
-// Daca prefixul lipseste sau e malformat, intoarce false si lasa restul intact:
-// asa un mesaj de la un aparat mai vechi ramane lizibil.
+// A malformed prefix returns false with rest intact, keeping older messages readable.
 bool splitCounterPrefix(const String &in, uint32_t &counter, String &rest) {
     if (in.length() < 9 || in[8] != COUNTER_SEP) {
         counter = 0;
@@ -46,9 +32,7 @@ bool splitCounterPrefix(const String &in, uint32_t &counter, String &rest) {
     return true;
 }
 
-// Extrage "|lat,lon" de la coada mesajului si il scoate din corp.
-// Formatul asta a ramas neschimbat fata de versiunea originala, ca partea de
-// afisare si radarul de echipa sa nu trebuiasca rescrise.
+// The trailing "|lat,lon" format is frozen: display and team radar depend on it.
 bool extractCoords(String &body, double &lat, double &lon) {
     int pipeIdx = body.lastIndexOf('|');
     if (pipeIdx <= 0) return false;
@@ -64,7 +48,6 @@ bool extractCoords(String &body, double &lat, double &lon) {
     double pLat = latStr.toDouble();
     double pLon = lonStr.toDouble();
 
-    // Coordonate in afara intervalului valid inseamna pachet corupt.
     if (pLat < -90.0 || pLat > 90.0 || pLon < -180.0 || pLon > 180.0) return false;
 
     lat = pLat;
@@ -73,7 +56,6 @@ bool extractCoords(String &body, double &lat, double &lon) {
     return true;
 }
 
-// Numele expeditorului e partea dinaintea primului ':'.
 String extractSender(const String &body) {
     int colonIdx = body.indexOf(':');
     if (colonIdx <= 0) return "";
@@ -82,13 +64,11 @@ String extractSender(const String &body) {
     return name;
 }
 
-// ---------------------------------------------------------------------------
-// Construire
-// ---------------------------------------------------------------------------
-//
-// payload e forma finala afisata plus coordonatele: "nume: text|lat,lon".
-// Intoarce "" daca criptarea a esuat - preferam sa nu trimitem nimic decat sa
-// trimitem in clar un mesaj pe care utilizatorul il crede securizat.
+// payload is the displayed form plus coordinates: "name: text|lat,lon". Returns
+// "" on encryption failure: better to send nothing than to send in clear a
+// message the user believes is secure. The hop byte sits OUTSIDE the ciphertext
+// because every relay decrements it, and anything under the GCM tag cannot be
+// changed without invalidating the message.
 String buildPacket(uint8_t msgType, const String &payload, bool secure, uint8_t hops) {
     if (payload.length() == 0) return "";
 
@@ -115,11 +95,9 @@ String buildPacket(uint8_t msgType, const String &payload, bool secure, uint8_t 
     return pkt;
 }
 
-// Scade contorul de salturi al unui pachet primit, ca sa poata fi retransmis.
-// Se lucreaza pe pachetul BRUT, neatins: retransmitem exact octetii primiti, cu
-// un singur octet schimbat. Daca l-am reconstrui din continutul decriptat, ar
-// pleca cu semnatura NOASTRA si cu contorul NOSTRU - adica ar arata ca un mesaj
-// scris de noi, si originalul n-ar mai putea fi confirmat expeditorului real.
+// Relay the RAW bytes with one byte changed. Rebuilt from the decrypted content,
+// the packet would carry OUR signature and OUR counter: it would look like our
+// own message, and the real sender would never get an ack.
 bool decrementHops(String &raw) {
     if (raw.length() < 3) return false;
     uint8_t marker = (uint8_t)raw[0];
@@ -130,13 +108,7 @@ bool decrementHops(String &raw) {
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Citire
-// ---------------------------------------------------------------------------
-//
-// Nu decide nimic despre ce se face cu mesajul - doar spune ce este.
-// Verificarea de reluare se face separat, fiindca are nevoie de starea
-// expeditorilor cunoscuti.
+// Reports what a packet is and decides nothing. The replay check is separate because it needs sender state.
 GlyphMessage parsePacket(const String &raw) {
     GlyphMessage m;
     if (raw.length() < 2) return m;
@@ -167,7 +139,7 @@ GlyphMessage parsePacket(const String &raw) {
         case PKT_V2_SECURE: {
             m.type = (uint8_t)raw[1];
             String plain = decryptMsg(raw.substring(2));
-            if (plain.length() == 0) return m;      // tag invalid -> respins
+            if (plain.length() == 0) return m;
             m.authentic = true;
             splitCounterPrefix(plain, m.counter, rest);
             break;
@@ -178,7 +150,7 @@ GlyphMessage parsePacket(const String &raw) {
             break;
         }
         case PKT_V1_SECURE: {
-            // Aparat cu firmware anterior: GCM, dar fara antet si fara contor.
+            // Older firmware: GCM, but no header and no counter.
             m.type = MSG_TEXT;
             String plain = decryptMsg(raw.substring(1));
             if (plain.length() == 0) return m;
@@ -191,16 +163,14 @@ GlyphMessage parsePacket(const String &raw) {
             m.type = MSG_TEXT;
             String plain = decryptLegacyCBC(raw.substring(1));
             if (plain.length() == 0) return m;
-            // CBC nu autentifica nimic: continutul poate fi modificat pe drum
-            // fara sa observam. Il afisam, dar nu il tratam ca autentic, deci
-            // nu ajunge in radarul de echipa.
+            // CBC authenticates nothing: content can be altered in flight. Show
+            // it, but not as authentic, so it never reaches the team radar.
             m.authentic = false;
             rest = plain;
             break;
         }
 #endif
         default:
-            // Mesaj public de la un aparat vechi: text simplu, fara marcaj.
             rest = raw;
             break;
     }
@@ -214,19 +184,11 @@ GlyphMessage parsePacket(const String &raw) {
     return m;
 }
 
-// ---------------------------------------------------------------------------
-// Anti-reluare
-// ---------------------------------------------------------------------------
-//
-// Acceptam un mesaj de la un expeditor cunoscut doar daca are contorul strict
-// mai mare decat ultimul acceptat. Contorul 0 inseamna "expeditor fara contor"
-// (firmware vechi) si nu poate fi verificat - il lasam sa treaca, dar nu are
-// acces la radar, fiindca acele formate nu sunt marcate ca autentice.
-//
-// Contorul se reseteaza cand aparatul expeditorului e reprogramat sau ii cade
-// bateria complet; de aceea un contor mult mai mic decat ultimul (peste
-// jumatate din intervalul pe 32 de biti in urma) e tratat ca repornire, nu ca
-// atac, si e acceptat.
+// The counter lives inside the encrypted part: GCM proves a message was not
+// altered, not that it is new, so without it a recorded packet replays cleanly.
+// Accept only a counter strictly above the last one seen. Counter 0 means old
+// firmware with no counter and cannot be checked. A counter far below the last
+// (over half the 32-bit range back) is a device restart, not an attack.
 bool isReplay(const String &sender, uint32_t counter, bool authentic) {
     if (!authentic || counter == 0 || sender.length() == 0) return false;
 
@@ -234,10 +196,10 @@ bool isReplay(const String &sender, uint32_t counter, bool authentic) {
         if (teammates[i].name != sender) continue;
 
         uint32_t last = teammates[i].lastCounter;
-        if (last == 0) return false;                    // primul mesaj cu contor
-        if (counter > last) return false;               // normal
-        if ((last - counter) > 0x80000000UL) return false; // repornire aparat
-        return true;                                    // reluare
+        if (last == 0) return false;
+        if (counter > last) return false;
+        if ((last - counter) > 0x80000000UL) return false;
+        return true;
     }
-    return false;   // expeditor necunoscut: nu avem cu ce compara
+    return false;   // unknown sender: nothing to compare against
 }

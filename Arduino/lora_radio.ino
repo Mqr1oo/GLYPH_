@@ -1,7 +1,4 @@
 //file name:lora_radio.ino
-//
-// Trimiterea unui mesaj. Criptografia sta in glyph_crypto.ino, formatul
-// pachetului in glyph_protocol.ino - amandoua testabile nativ.
 
 void executeSendMsg() {
     if (msgDraft.length() == 0 || currentPowerMode == STEALTH_MODE) return;
@@ -15,8 +12,8 @@ void executeSendMsg() {
 
     String packet = buildPacket(MSG_TEXT, payload, secureMode, MESH_HOPS_DEFAULT);
     if (packet.length() == 0) {
-        // Criptarea a esuat. Nu trimitem in clar un mesaj pe care
-        // utilizatorul il crede securizat.
+        // Encryption failed. Never send in the clear a message the user
+        // believes is secure.
         notifyPhone("[SYS] Encryption failed, message not sent");
         return;
     }
@@ -26,8 +23,8 @@ void executeSendMsg() {
     int txState = radio.transmit(packet);
 
     if (txState != RADIOLIB_ERR_NONE) {
-        // Inainte, un esec de transmisie era invizibil: mesajul aparea in
-        // istoric ca si cum ar fi plecat.
+        // A failed transmit must be reported. Otherwise the message shows up
+        // in the history as if it had left.
         notifyPhone("[SYS] Transmit failed (" + String(txState) + ")");
         pushLoraHistory("!! [" + formatLocalTime() + "] NOT SENT: " + msgDraft);
     } else {

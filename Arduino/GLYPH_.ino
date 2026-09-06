@@ -69,8 +69,8 @@ bool mag_ok = false;
 bool gps_ok = false;
 bool sdDetected = false;
 
-// Ce merge si ce nu. Definit aici fiindca sketch-ul principal e concatenat
-// primul de builder-ul Arduino, deci simbolul trebuie sa existe de la inceput.
+// Defined here because the main sketch is concatenated first by the Arduino
+// builder, so the symbol must exist from the start.
 DeviceHealth health;
 
 TaskHandle_t buttonTaskHandle;
@@ -158,8 +158,6 @@ int menuSelection = 0;
 int tempLangSelection = 0; 
 int tempTimeSelection = 2; 
 
-// FIX: exista 11 limbi, dar meniurile permiteau doar indicii 0..9,
-// deci a 11-a limba (Zhongwen) era inaccesibila din interfata.
 const int LANG_COUNT = 11;
 const char* langNames[11] = { "Romana", "English", "Espanol", "Francais", "Deutsch", "Italiano", "Portugues", "Polski", "Nederlands", "Turkce", "Zhongwen" };
 const char* tr_map[11] = { "HARTA TACTICA", "TACTICAL MAP", "MAPA TACTICO", "CARTE TACTIQUE", "TAKTIK-KARTE", "MAPPA TATTICA", "MAPA TATICO", "MAPA TAKTYCZNA", "KAART", "HARITA", "ZHAN SHU DI TU" };
@@ -226,11 +224,11 @@ BLECharacteristic * pTxCharacteristic;
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
 
-// FIX: inainte era un String Arduino scris in interiorul unei sectiuni critice
-// (portENTER_CRITICAL). Atribuirea unui String face malloc/free, iar malloc cu
-// intreruperile dezactivate poate bloca sau da crash pe ESP32. Acum e un buffer
-// static, deci in sectiunea critica se face doar un memcpy.
-#define BLE_RX_BUF_SIZE 192
+// Static buffer, not an Arduino String: assigning a String mallocs, and malloc
+// with interrupts disabled can hang or crash on ESP32, so the critical section
+// does only a memcpy. 256 because a base64 file chunk with prefix reaches 233
+// bytes; a buffer shorter than the longest command truncates it silently.
+#define BLE_RX_BUF_SIZE 256
 volatile char bleRxBuffer[BLE_RX_BUF_SIZE] = {0};
 volatile bool bleDataReceived = false;
 portMUX_TYPE bleMux = portMUX_INITIALIZER_UNLOCKED;
@@ -264,7 +262,7 @@ void evaluateSleep();
 void checkBLEInput();
 void sendTelemetryBLE();
 
-// Cardul SD, vazut de pe telefon (glyph_files.ino)
+// SD card, as seen from the phone (glyph_files.ino)
 void sendSDListing();
 void startFileTransfer(const String &rawName);
 void abortFileTransfer(const char *reason);
@@ -294,6 +292,10 @@ void sensorTask(void * pvParameters);
 int getBatteryPercent();
 void sampleBattery();
 bool batteryLow();
+bool batteryCharging();
+int batteryChargePercent();
+float batteryTrustedVoltage();
+extern bool batCharging;
 void checkBatteryCutoff();
 void stopRecordingSafely();
 void showShutdownNotice(const char* line);
@@ -314,7 +316,7 @@ GlyphMessage parsePacket(const String &raw);
 String buildPacket(uint8_t msgType, const String &payload, bool secure, uint8_t hops);
 bool decrementHops(String &raw);
 
-// Reteaua mesh (glyph_mesh.ino)
+// Mesh network (glyph_mesh.ino)
 void meshBegin();
 void meshOnReceived(const String &raw, const GlyphMessage &msg, float snr, float rssi);
 void serviceMesh();
@@ -397,8 +399,7 @@ void setup() {
     gps_ok = myGNSS.begin();
     if(gps_ok) {
         myGNSS.setI2COutput(COM_TYPE_UBX);
-        // FIX: autoPVT ON -> modulul impinge singur NAV-PVT si getPVT() nu mai
-        // blocheaza task-ul asteptand raspunsul (cauza principala a scroll-ului greoi).
+        // autoPVT makes the module push NAV-PVT, so getPVT() does not block.
         myGNSS.setAutoPVT(true);
     }
     
@@ -429,8 +430,6 @@ void setup() {
     }
     esp_sleep_enable_ext1_wakeup(1ULL << BTN_PIN, ESP_EXT1_WAKEUP_ALL_LOW);
     
-    // Media peste mai multe citiri, cu calibrarea din eFuse.
-    // Inainte: o singura analogRead() cruda, zgomotoasa si neliniara.
     sampleBattery();
     pingActivity();
     
@@ -453,8 +452,6 @@ void setup() {
         radio.standby();
     }
 
-    // Adunam ce merge si ce nu, o singura data, ca sa putem arata utilizatorului
-    // un aparat "degradat" in loc sa-l lasam sa creada ca totul e in regula.
     health.gpsOk     = gps_ok;
     health.imuOk     = imu_ok;
     health.shtOk     = sht_ok;
@@ -478,7 +475,7 @@ void setup() {
         applyPowerMode(currentPowerMode);
     }
 
-    // FIX: doua task-uri separate. Butoanele nu mai stau in spatele GPS-ului.
+    // Buttons run on their own task so they never queue behind GPS work.
     xTaskCreatePinnedToCore(buttonTask, "BTN_Task", 4096, NULL, 4, &buttonTaskHandle, 0);
     xTaskCreatePinnedToCore(sensorTask, "SENS_Task", 8192, NULL, 1, &sensorTaskHandle, 0);
 
@@ -488,17 +485,13 @@ void setup() {
 void loop() {
     checkSerialInput(); 
     handleButtons(); 
-    serviceSosBroadcast();   // difuzarea SOS avanseaza cate un pachet pe tura
+    serviceSosBroadcast();   // advances the SOS broadcast one packet per pass
     evaluateSleep(); 
     checkBLEInput(); 
     sendTelemetryBLE(); 
 
-    // Trimite urmatoarele cateva bucati dintr-un fisier cerut de telefon, daca
-    // exista un transfer in curs. Se intoarce imediat cand nu e nimic de facut.
     serviceFileTransfer(); 
 
-    // Retransmisiile si confirmarile amanate. Se intoarce imediat cand n-are
-    // nimic de trimis; nu blocheaza niciodata bucla.
     serviceMesh();
 
     if (promptNeedsResend && deviceConnected && !introMode) {
@@ -518,14 +511,11 @@ void loop() {
             const float rxSnr  = radio.getSNR();
             const float rxRssi = radio.getRSSI();
 
-            // Reteaua vede FIECARE pachet valid, inclusiv pe cele pe care
-            // filtrul de mod de mai jos nu le va afisa: un aparat pe public
-            // trebuie sa poata duce mai departe SOS-ul unei echipe, chiar daca
-            // nu are cum sa-i citeasca mesajele obisnuite.
+            // The mesh sees EVERY valid packet, including ones the mode filter
+            // below hides: a unit in public mode must still relay a team SOS.
             meshOnReceived(raw, msg, rxSnr, rxRssi);
 
-            // Confirmarile si masuratorile nu sunt conversatie: nu ajung in
-            // istoricul de pe ecran, doar in telefon si in fisierul de pe card.
+            // Acks and measurements are not conversation: phone and card only.
             if (msg.valid && msg.authentic && msg.type == MSG_ACK) {
                 notifyPhone("SYS_ACK:" + msg.sender + "|" + msg.body);
                 radio.startReceive();
@@ -546,20 +536,14 @@ void loop() {
                 return;
             }
 
-            // Filtrul de mod: in modul securizat aratam doar mesaje autentificate,
-            // in modul public doar pe cele necriptate.
             bool modeMatches = (secureMode == msg.authentic);
 
             if (msg.valid && modeMatches && !isReplay(msg.sender, msg.counter, msg.authentic)) {
 
-                // RADARUL DE ECHIPA acceptă doar mesaje care au trecut prin
-                // decriptare GCM reusita - adica doar de la cine are cheia echipei.
-                //
-                // Inainte, coordonatele din ORICE mesaj populau tabelul, inclusiv
-                // in modul public unde nu exista criptare deloc. Oricine in raza de
-                // 10 km putea injecta cinci "coechipieri" cu pozitii inventate si,
-                // fiindca tabelul are cinci sloturi cu evacuarea celui mai vechi,
-                // iti putea scoate oamenii reali de pe ecran.
+                // Team radar accepts only messages that passed GCM decryption,
+                // i.e. only holders of the team key. Otherwise anyone in range
+                // could inject five fake teammates and, with five slots and
+                // oldest-out eviction, push the real ones off the screen.
                 if (msg.authentic && msg.hasCoords && msg.sender.length() > 0) {
                     upsertTeammate(msg.sender, msg.lat, msg.lon, msg.counter);
                 }
@@ -619,6 +603,24 @@ void loop() {
         sampleBattery();
         checkBatteryCutoff();
 
+        // The e-paper only redraws when asked. Without this, a warning drawn
+        // once stays on the glass after the condition clears: the low-battery
+        // banner survived a recharge and needed a reset to remove. Any change
+        // the user can see has to request a redraw itself.
+        static bool lastBattLow  = false;
+        static bool lastCharging = false;
+        static int  lastBattPct  = -1;
+        const bool  nowLow  = batteryLow();
+        const bool  nowChg  = batteryCharging();
+        const int   nowPct  = batteryChargePercent();
+        if (nowLow != lastBattLow || nowChg != lastCharging || nowPct != lastBattPct) {
+            lastBattLow  = nowLow;
+            lastCharging = nowChg;
+            lastBattPct  = nowPct;
+            requestUIUpdate = true;
+            fullRefreshNeeded = false;
+        }
+
         static unsigned long lastSensorLog = 0;
         if (sdDetected && (millis() - lastSensorLog > TELEMETRY_LOG_INTERVAL_MS)) {
             lastSensorLog = millis(); 
@@ -634,4 +636,4 @@ void loop() {
     vTaskDelay(10 / portTICK_PERIOD_MS);
 }
 
-// Mutata in core_helpers.ino ca formatLocalTime(), care roteste corect si data.
+// Moved to core_helpers.ino as formatLocalTime(), which also rolls the date.

@@ -1,6 +1,5 @@
 //file name:sleep_standby.ino
 
-// Un ecran scurt cu un singur mesaj, folosit inainte de opriri.
 void showShutdownNotice(const char* line) {
     display.setRotation(currentScreenRotation);
     display.fillScreen(GxEPD_WHITE);
@@ -13,11 +12,9 @@ void showShutdownNotice(const char* line) {
     display.update();
 }
 
-// Inchide ordonat inregistrarea in curs.
-//
-// Fara asta, la caderea bateriei aparatul se opreste in mijlocul unei scrieri
-// pe SD si poate lasa fisierul KML trunchiat sau tabela FAT corupta - adica
-// exact traseul pe care tocmai l-ai inregistrat.
+// Close the running recording cleanly. Without this, a power loss during an SD
+// write can leave a truncated KML or a corrupt FAT table - losing the track that
+// was just recorded.
 void stopRecordingSafely() {
     if (!isRecording) return;
 
@@ -84,14 +81,14 @@ void evaluateSleep() {
     }
 
 
-    // Cat timp difuzeaza SOS, aparatul nu are voie sa adoarma.
+    // No sleep while SOS is armed.
     if (sosArmed()) {
         sessionActivityTime = millis();
         return;
     }
 
-    // Nici cat timp trimite un fisier catre telefon: standby-ul sterge ecranul
-    // si taie transferul la jumatate, iar descarcarea ar esua fara explicatie.
+    // No standby during a transfer either: standby blanks the screen and cuts
+    // the transfer in half, and the download fails with no explanation.
     if (fileTransferBusy() || uploadBusy() || otaBusy()) {
         sessionActivityTime = millis();
         return;
@@ -177,9 +174,10 @@ void evaluateSleep() {
 
       
         setCpuFrequencyMhz(CPU_MHZ_NORMAL);
-        // FIX: dupa BLEDevice::deinit() stiva BLE e complet noua, dar flag-urile
-        // ramaneau pe "conectat" -> checkBLEInput() apela startAdvertising() pe un
-        // pServer vechi si telefonul nu mai reusea sa se reconecteze dupa standby.
+        // After BLEDevice::deinit() the BLE stack is new, so every flag and
+        // pointer must be reset. Left on "connected", checkBLEInput() called
+        // startAdvertising() on a stale pServer and the phone could not
+        // reconnect after standby.
         deviceConnected = false;
         oldDeviceConnected = false;
         introMode = false;

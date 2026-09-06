@@ -1,27 +1,21 @@
 //file name:glyph_crypto.ino
-//
-// Doar primitivele criptografice. Nu atinge radioul, display-ul sau cardul -
-// primesc un sir, intorc un sir. De aceea pot fi compilate si testate nativ pe
-// PC, cu acelasi mbedtls, in test/.
-// Fisierul isi include singur ce foloseste, ca sa poata fi compilat si in
-// afara sketch-ului Arduino (vezi test/).
+// Crypto primitives only: string in, string out, no hardware. It includes its
+// own headers so it also builds outside the sketch, against the mbedtls the tests use.
 #include <string.h>
 #include <new>
 #include "mbedtls/aes.h"
 #include "mbedtls/md.h"
 #include "mbedtls/gcm.h"
 
-// Salt fix, cunoscut. Nu e secret si nu trebuie sa fie: rolul lui e sa lege
-// derivarea de aplicatia asta, ca sa nu poata fi refolosite tabele precalculate
-// de hash-uri generice. Costul per incercare il dau cele 20000 de iteratii.
+// Fixed public salt, not a secret: it binds derivation to this application so
+// generic precomputed tables do not apply. The 20000 iterations set the guess cost.
 static const char* GLYPH_KDF_SALT = "GLYPH-LoRa-KDF-v2";
 static const int   GLYPH_KDF_ITERATIONS = 20000;
 
 static const uint8_t GCM_NONCE_LEN = 12;
 static const uint8_t GCM_TAG_LEN   = 16;
 
-// PBKDF2 dureaza ~0.3 s la 80 MHz, deci cheia se calculeaza o data si se
-// pastreaza pana cand se schimba numele echipei.
+// PBKDF2 takes ~0.3 s at 80 MHz, so the key is cached until the team name changes.
 static byte  cachedKey[32];
 static String cachedKeyTeam = "";
 static bool   cachedKeyValid = false;
@@ -30,10 +24,8 @@ void invalidateTeamKey() {
     cachedKeyValid = false;
 }
 
-// PBKDF2-HMAC-SHA256, o singura iesire de 32 de octeti (deci un singur bloc).
-// Scris de mana in loc de mbedtls_pkcs5_pbkdf2_hmac(), care e marcat deprecated
-// in mbedtls 3.x si poate lipsi in functie de versiunea de ESP32 core.
-// Foloseste doar mbedtls_md_*, care e stabil in ambele versiuni.
+// Hand-written PBKDF2-HMAC-SHA256, one 32-byte output. mbedtls_pkcs5_pbkdf2_hmac
+// is deprecated in mbedtls 3.x and may be missing depending on the ESP32 core.
 static int pbkdf2Sha256(const uint8_t* password, size_t passLen,
                         const uint8_t* salt, size_t saltLen,
                         uint32_t iterations, uint8_t* out32) {
@@ -42,7 +34,7 @@ static int pbkdf2Sha256(const uint8_t* password, size_t passLen,
 
     mbedtls_md_context_t ctx;
     mbedtls_md_init(&ctx);
-    if (mbedtls_md_setup(&ctx, info, 1) != 0) {   // 1 = mod HMAC
+    if (mbedtls_md_setup(&ctx, info, 1) != 0) {   // 1 = HMAC mode
         mbedtls_md_free(&ctx);
         return -1;
     }
@@ -51,7 +43,6 @@ static int pbkdf2Sha256(const uint8_t* password, size_t passLen,
     uint8_t work[32];
     int rc = 0;
 
-    // U1 = HMAC(password, salt || INT_BE32(1))
     const uint8_t counter[4] = { 0, 0, 0, 1 };
     rc |= mbedtls_md_hmac_starts(&ctx, password, passLen);
     rc |= mbedtls_md_hmac_update(&ctx, salt, saltLen);
@@ -59,7 +50,6 @@ static int pbkdf2Sha256(const uint8_t* password, size_t passLen,
     rc |= mbedtls_md_hmac_finish(&ctx, work);
     memcpy(block, work, 32);
 
-    // Ui = HMAC(password, Ui-1); rezultatul e XOR-ul tuturor.
     for (uint32_t i = 1; i < iterations && rc == 0; i++) {
         rc |= mbedtls_md_hmac_reset(&ctx);
         rc |= mbedtls_md_hmac_update(&ctx, work, 32);
@@ -119,9 +109,6 @@ static bool isHexString(const String& s) {
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// AES-256-GCM
-// ---------------------------------------------------------------------------
 String cryptMsg(String input) {
     byte key[32];
     getAESKey(key);
@@ -144,7 +131,7 @@ String cryptMsg(String input) {
     if (rc == 0) {
         rc = mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT, len,
                                        nonce, GCM_NONCE_LEN,
-                                       NULL, 0,                       // fara AAD
+                                       NULL, 0,
                                        (const unsigned char*)input.c_str(),
                                        output, GCM_TAG_LEN, tag);
     }
@@ -162,13 +149,12 @@ String cryptMsg(String input) {
 }
 
 #if GLYPH_ACCEPT_LEGACY_CBC
-// Doar pentru a citi mesaje de la aparate care inca au firmware vechi.
 String decryptLegacyCBC(String input) {
     if (input.length() < 64) return "";
     if (!isHexString(input)) return "";
     if (((input.length() - 32) / 2) % 16 != 0) return "";
 
-    // Cheia veche era SHA-256 simplu peste numele echipei.
+    // The old key was a plain SHA-256 of the team name.
     byte key[32];
     String k = (myTeam.length() > 0) ? myTeam : "ALPHA";
     mbedtls_md_context_t ctx;
@@ -211,8 +197,8 @@ String decryptLegacyCBC(String input) {
 }
 #endif
 
-// Intoarce "" daca mesajul nu e autentic. Spre deosebire de CBC, aici un mesaj
-// modificat pe drum e respins, nu livrat ca text alterat.
+// Returns "" if the message is not authentic. Unlike CBC, a message altered in
+// flight is rejected here instead of being delivered as corrupted text.
 String decryptMsg(String input) {
     unsigned int minLen = (GCM_NONCE_LEN + GCM_TAG_LEN) * 2;
     if (input.length() <= minLen) return "";
@@ -251,7 +237,7 @@ String decryptMsg(String input) {
     mbedtls_gcm_free(&gcm);
 
     String result = "";
-    if (rc == 0) {                       // rc != 0 => tag invalid, mesaj respins
+    if (rc == 0) {
         for (int i = 0; i < cipherLen; i++) result += (char)output[i];
     }
 
