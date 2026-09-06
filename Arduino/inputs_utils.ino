@@ -106,7 +106,10 @@ bool processVirtualCommand(String cmd) {
         notifyPhone(secureMode ? "SYS_SEC:1" : "SYS_SEC:0"); delay(BLE_NOTIFY_GAP_MS);
         notifyPhone("SYS_TEAMNAME:" + myTeam);            delay(BLE_NOTIFY_GAP_MS);
         notifyPhone("SYS_PWR:" + String((int)currentPowerMode)); delay(BLE_NOTIFY_GAP_MS);
-        notifyPhone(sdDetected ? "SYS_SD:1" : "SYS_SD:0");
+        notifyPhone(sdDetected ? "SYS_SD:1" : "SYS_SD:0"); delay(BLE_NOTIFY_GAP_MS);
+        // Versiunea, ca telefonul sa poata spune daca aparatul a ramas in urma
+        // fata de binarul publicat pe site.
+        notifyPhone("SYS_VER:" + OS_VERSION);
         return true;
     }
 
