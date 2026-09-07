@@ -11,8 +11,8 @@
     "Daca size nu se potriveste cu fisierul real, aplicatia spune ca descrierea",
     "e invechita in loc sa te lase sa crezi ceva gresit."
   ],
-  "version": "10.08.27",
+  "version": "10.09.00",
   "size": 4194304,
-  "built": "2026-09-6",
+  "built": "2026-09-7",
   "notes": "Versiune de referinta - inlocuieste dupa prima compilare."
 }
