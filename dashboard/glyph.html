@@ -618,6 +618,21 @@ body.is-recording #link-text{display:none}
   .coach-card{transition:none}
 }
 
+/* ---------- reteaua pentru actualizare ---------- */
+.wifi-form{padding:4px 16px 14px;border-top:1px solid var(--line-soft)}
+.wifi-row{display:flex;align-items:center;gap:10px;margin-top:10px}
+.wifi-row span{font-size:12.5px;color:var(--ink-3);width:74px;flex:none}
+.wifi-row input{
+  flex:1;min-width:0;background:var(--surface-3);color:var(--ink);
+  border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:14px;
+}
+.wifi-row input:focus{outline:none;border-color:var(--accent)}
+.wifi-remember{display:flex;align-items:center;gap:8px;margin-top:11px;
+  font-size:12.5px;color:var(--ink-3)}
+.wifi-note{margin-top:10px;font-size:12px;line-height:1.5;color:var(--ink-3)}
+.wifi-actions{display:flex;gap:10px;margin-top:13px}
+.wifi-actions .m-btn{flex:1}
+
 /* ---------- starea firmware-ului ---------- */
 .fw-state{padding:12px 16px;border-bottom:1px solid var(--line-soft)}
 .fw-line{
@@ -1200,21 +1215,35 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
               <path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
             </svg>
           </span>
-          <span>Update from the site<span class="sub">downloads the published build &middot; no file to find</span></span>
+          <span>Update over Wi-Fi<span class="sub">GLYPH downloads the published build itself &middot; under a minute</span></span>
         </button>
-        <button class="action" onclick="pickFirmware()">
-          <span class="ico">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/>
-            </svg>
-          </span>
-          <span>Pick a .bin file<span class="sub">for a build you compiled yourself</span></span>
-        </button>
-        <input type="file" id="fw-file" accept=".bin" class="hidden" onchange="handleFirmwarePicked(event)">
       </div>
+
+      <!-- Reteaua se cere doar cand chiar se face actualizarea. Numele retelei
+           se tine minte pe telefon; parola, doar daca o ceri. -->
+      <div class="wifi-form hidden" id="wifi-form">
+        <label class="wifi-row">
+          <span>Network</span>
+          <input type="text" id="wifi-ssid" autocomplete="off" autocapitalize="none"
+                 spellcheck="false" placeholder="Wi-Fi name">
+        </label>
+        <label class="wifi-row">
+          <span>Password</span>
+          <input type="password" id="wifi-pass" autocomplete="off" placeholder="leave empty if open">
+        </label>
+        <label class="wifi-remember">
+          <input type="checkbox" id="wifi-remember"> Remember on this phone
+        </label>
+        <div class="wifi-note" id="wifi-note"></div>
+        <div class="wifi-actions">
+          <button class="m-btn cancel" onclick="closeWifiForm()">Cancel</button>
+          <button class="m-btn ok" onclick="startWifiUpdate()">Start</button>
+        </div>
+      </div>
+
       <div class="dl-bar hidden" id="ota-bar">
         <div class="dl-top">
-          <span id="ota-name">firmware.bin</span>
+          <span id="ota-name">firmware</span>
           <button class="mini danger" onclick="cancelOta()">STOP</button>
         </div>
         <div class="dl-track"><div class="dl-fill" id="ota-fill"></div></div>
@@ -1606,6 +1635,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         setControlsEnabled(false);
         clearTeammates();
         deviceVersion = null;
+        otaSlotOk = null;
         noteDeviceAnswered();
         uploadChunkBytes = UPLOAD_CHUNK_SAFE;
         renderFirmwareState();
@@ -1761,6 +1791,7 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         if (val.startsWith("SYS_RECFILE:")) { noteRecordingFile(val.substring(12).trim()); return; }
         if (val.startsWith("SYS_CHG:")) { setCharging(val.substring(8).trim() === '1'); return; }
         if (val.startsWith("SYS_UP:"))  { noteUptime(parseInt(val.substring(7), 10)); return; }
+        if (val.startsWith("SYS_OTASLOT:")) { noteOtaSlot(val.substring(12)); return; }
         if (val.startsWith("SYS_VER:")) {
             deviceVersion = val.substring(8).trim();
             noteDeviceAnswered();
@@ -1835,13 +1866,12 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         if (val.startsWith("SYS_PUT_ERR:"))  { failUpload(val.substring(12)); return; }
 
         // ---- actualizarea firmware-ului ----
-        // Aparatul sterge partitia inainte sa poata primi ceva: spunem asta in
-        // loc sa lasam o bara care pare inghetata.
-        if (val === "SYS_OTA_ERASE")        { noteOtaErasing(); return; }
-        if (val === "SYS_OTA_READY")        { sendNextOtaChunk(); return; }
-        if (val.startsWith("SYS_OTA_ACK:")) { sendNextOtaChunk(); return; }
-        if (val === "SYS_OTA_DONE")         { finishOtaUI(); return; }
-        if (val.startsWith("SYS_OTA_ERR:")) { failOta(val.substring(12)); return; }
+        // Aparatul isi descarca singur imaginea; noi doar aratam pe unde e.
+        if (val.startsWith("SYS_WOTA_STATE:")) { noteOtaState(val.substring(15)); return; }
+        if (val.startsWith("SYS_WOTA_SIZE:"))  { noteOtaSize(parseInt(val.substring(14), 10)); return; }
+        if (val.startsWith("SYS_WOTA_ERR:"))   { failOta(val.substring(13)); return; }
+        if (val === "SYS_WOTA_DONE")           { finishOtaUI(); return; }
+        if (val.startsWith("SYS_WOTA:"))       { noteOtaProgress(parseInt(val.substring(9), 10)); return; }
 
         // ---- confirmare venita pe radio de la un coechipier ----
         if (val.startsWith("SYS_ACK:")) {
@@ -3549,6 +3579,15 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
         armUploadTimeout();
     }
 
+    // Un transfer care se opreste are trei explicatii, si aplicatia le poate
+    // deosebi: legatura a cazut, aparatul s-a resetat, sau chiar nu raspunde.
+    // Sunt lucruri diferite si se repara diferit, deci merita numite.
+    function stallReason() {
+        if (!isConnected)      return 'the Bluetooth link dropped';
+        if (deviceReboots > 0) return 'the device restarted';
+        return 'no answer from the device';
+    }
+
     // Daca aparatul nu raspunde, nu ramanem agatati la nesfarsit cu o bara de
     // progres inghetata: renuntam si spunem de ce.
     function armUploadTimeout() {
@@ -3751,159 +3790,158 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     }
 
     // =====================================================================
-    // ACTUALIZAREA FIRMWARE-ULUI
+    // ACTUALIZAREA FIRMWARE-ULUI, PRIN WI-FI
     //
-    // Acelasi mecanism ca la incarcarea unei rute - o bucata in zbor,
-    // confirmata inainte de urmatoarea - dar destinatia e partitia OTA.
-    // Aparatul scrie in partitia INACTIVA si comuta pe ea abia la final, deci o
-    // intrerupere la jumatate il lasa pe firmware-ul vechi, functional.
+    // Telefonul nu mai carauseste imaginea. Ducea 1,4 MB in bucati de 168 de
+    // octeti, fiecare confirmata: zece minute de tinut telefonul nemiscat langa
+    // aparat, si totul de la capat daca legatura clipea o data. Aparatul are
+    // Wi-Fi; peste Wi-Fi acelasi fisier ajunge in sub un minut. Telefonul doar
+    // spune in ce retea sa intre si de unde sa ia fisierul.
+    //
+    // Aparatul scrie in partitia de aplicatie INACTIVA si comuta pe ea abia
+    // dupa ce imaginea trece verificarea, deci o intrerupere la mijloc il lasa
+    // pe firmware-ul pe care il avea, functional.
     // =====================================================================
-    let ota = null;
 
-    function pickFirmware() {
-        if (!isConnected) { showToast('Connect to GLYPH first', 'warning'); return; }
-        if (legacyBlocked('Updating over Bluetooth')) return;
-        document.getElementById('fw-file').click();
+    let ota = null;                  // { timer, pct, t0 }
+    let otaSlotOk = null;            // are aparatul o a doua partitie?
+    let otaSlotBytes = 0;
+
+    const WIFI_SSID_KEY = 'glyph_wifi_ssid';
+    const WIFI_PASS_KEY = 'glyph_wifi_pass';
+
+    function noteOtaSlot(raw) {
+        const p = String(raw).split('|');
+        otaSlotOk    = p[0] === '1';
+        otaSlotBytes = parseInt(p[1], 10) || 0;
+        renderFirmwareState();
     }
 
-    function handleFirmwarePicked(ev) {
-        const f = ev.target.files && ev.target.files[0];
-        ev.target.value = '';
-        if (!f) return;
-
-        if (!/\.bin$/i.test(f.name)) { showToast('That is not a .bin firmware file', 'error'); return; }
-        if (f.size < 65536) { showToast('That file is too small to be firmware', 'error'); return; }
-
-        const r = new FileReader();
-        r.onload = () => {
-            const raw = new Uint8Array(r.result);
-            const c = classifyFirmware(raw);
-
-            if (c.kind === 'unknown') {
-                showAlert('Not a usable firmware file',
-                    'This file is not an ESP32 image, or it is damaged. Pick '
-                  + '<code>GLYPH_.ino.bin</code> from the build folder.');
-                return;
-            }
-
-            // Fisierul potrivit e chiar aplicatia. Cel contopit e pentru cablu:
-            // il spunem pe nume in loc sa taiem in tacere din el.
-            if (c.kind === 'merged') {
-                showConfirm('That is the cable file',
-                    '<b>' + escapeHtml(f.name) + '</b> is the ' + Math.round(raw.length / 1024)
-                  + ' KB image meant for flashing over USB: bootloader, partition table '
-                  + 'and application in one.<br><br>Over Bluetooth only the application is '
-                  + 'written, so the right file is <code>GLYPH_.ino.bin</code> ('
-                  + Math.round(c.len / 1024) + ' KB) from the same folder.<br><br>'
-                  + 'Cancel and pick that one, or continue and the application will be cut '
-                  + 'out of this file — the result is identical, it just reads 4 MB to get there.',
-                    () => confirmOtaSend(f.name, raw, c));
-                return;
-            }
-
-            confirmOtaSend(f.name, raw, c);
-        };
-        r.readAsArrayBuffer(f);
+    // Fara a doua partitie nu exista actualizare prin niciun drum: aparatul ar
+    // trebui sa scrie peste programul care ruleaza chiar in acel moment.
+    function otaSlotBlocked() {
+        if (otaSlotOk !== false) return false;
+        showAlert('This device cannot update itself',
+            'Its partition table has a single application slot, so there is '
+          + 'nowhere to write an update except over the firmware that is running. '
+          + 'The chip refuses that, which is why updates end in silence.'
+          + '<br><br>The fix is a partition table with two slots — '
+          + '<code>Arduino/partitions.csv</code> in the project — and that table '
+          + 'is itself written over USB. Flash once from the flasher page with '
+          + 'the new build, and from then on GLYPH updates itself over Wi-Fi.');
+        return true;
     }
 
-    function confirmOtaSend(name, raw, c) {
-        showConfirm('Update firmware',
-            'Send <b>' + escapeHtml(name) + '</b> (' + Math.round(c.len / 1024) + ' KB) to GLYPH?'
-            + '<br><br>This takes <b>several minutes</b>. Keep the phone near the device '
-            + 'and the screen on. It restarts when done. If anything interrupts it, the '
-            + 'device simply keeps the firmware it has now.',
-            () => startOta(name, raw));
-    }
-
-    function startOta(name, rawBytes) {
-        if (ota) { showToast('An update is already running', 'warning'); return; }
-
-        let bytes;
+    function openWifiForm() {
+        const form = document.getElementById('wifi-form');
         try {
-            const r = extractAppImage(rawBytes);
-            bytes = r.bytes;
-            if (r.note) showToast(r.note);
-        } catch (e) {
-            showAlert('Not a usable firmware file', escapeHtml(String(e.message || e)));
+            document.getElementById('wifi-ssid').value = localStorage.getItem(WIFI_SSID_KEY) || '';
+            const pass = localStorage.getItem(WIFI_PASS_KEY);
+            document.getElementById('wifi-pass').value = pass || '';
+            document.getElementById('wifi-remember').checked = !!pass;
+        } catch (e) {}
+        form.classList.remove('hidden');
+        document.getElementById('wifi-ssid').focus();
+    }
+
+    function closeWifiForm() {
+        document.getElementById('wifi-form').classList.add('hidden');
+    }
+
+    async function startWifiUpdate() {
+        const ssid = document.getElementById('wifi-ssid').value.trim();
+        const pass = document.getElementById('wifi-pass').value;
+        if (!ssid) { showToast('Which network?', 'warning'); return; }
+
+        // Parola ramane pe telefon si numai daca ceri asta. Pe aparat nu se
+        // scrie niciodata in memoria permanenta.
+        try {
+            localStorage.setItem(WIFI_SSID_KEY, ssid);
+            if (document.getElementById('wifi-remember').checked) {
+                localStorage.setItem(WIFI_PASS_KEY, pass);
+            } else {
+                localStorage.removeItem(WIFI_PASS_KEY);
+            }
+        } catch (e) {}
+
+        // Adresa completa a fisierului, ca sa o poata cere aparatul singur.
+        const url = new URL(FW_APP_URL, location.href).href;
+        if (url.startsWith('file:')) {
+            showAlert('Not served from a site',
+                'This page is open from a file on the phone, so there is no address '
+              + 'GLYPH could download from. Open the app from the site instead.');
             return;
         }
 
-        // Prima asteptare e mai lunga: inainte de a raspunde, aparatul sterge
-        // partitia in care va scrie, si stergerea a 1,4 MB de flash tine
-        // secunde bune in care nu poate trimite nimic.
-        ota = { name, bytes, sent: 0, timer: null, t0: Date.now(), waitMs: 40000 };
+        closeWifiForm();
+        ota = { timer: null, pct: 0, t0: Date.now() };
         document.getElementById('ota-bar').classList.remove('hidden');
-        document.getElementById('ota-name').innerText = name;
         document.getElementById('ota-fill').style.width = '0%';
-        sendCmd('CMD_OTA:' + bytes.length);
-        armOtaTimeout();
+        document.getElementById('ota-name').innerText = 'asking GLYPH to join ' + ssid + '…';
+        sendCmd('CMD_WOTA:' + ssid + '|' + pass + '|' + url);
+        armOtaTimeout(45000);
     }
 
-    // Un transfer care se opreste are trei explicatii, si aplicatia le poate
-    // deosebi: legatura a cazut, aparatul s-a resetat, sau chiar nu raspunde.
-    function stallReason() {
-        if (!isConnected) return 'the Bluetooth link dropped';
-        if (deviceReboots > 0) return 'the device restarted';
-        return 'no answer from the device';
-    }
-
-    function armOtaTimeout() {
+    // Cat asteptam un semn de viata. Intrarea in retea si stergerea partitiei
+    // sunt amandoua lungi si tacute, deci fereastra e larga la inceput.
+    function armOtaTimeout(ms) {
         if (!ota) return;
         clearTimeout(ota.timer);
         ota.timer = setTimeout(() => {
             if (!ota) return;
-            sendCmd('CMD_OTAABORT');
+            sendCmd('CMD_WOTAABORT');
             failOta(stallReason());
-        }, ota.waitMs || 12000);
+        }, ms || 30000);
     }
 
-    function noteOtaErasing() {
+    function noteOtaState(text) {
         if (!ota) return;
+        document.getElementById('ota-name').innerText = text;
+        armOtaTimeout(text.indexOf('clearing') === 0 ? 45000 : 45000);
+    }
+
+    function noteOtaSize(bytes) {
+        if (!ota) return;
+        ota.total = bytes;
         document.getElementById('ota-name').innerText =
-            ota.name + ' — clearing space on the device…';
-        armOtaTimeout();
+            'downloading ' + Math.round(bytes / 1024) + ' KB…';
+        armOtaTimeout(60000);
     }
 
-    function sendNextOtaChunk() {
+    function noteOtaProgress(pct) {
         if (!ota) return;
-        ota.waitMs = 12000;      // stergerea s-a terminat, aparatul raspunde iar
-        if (ota.sent >= ota.bytes.length) { sendCmd('CMD_OTAEND'); armOtaTimeout(); return; }
-        const slice = ota.bytes.slice(ota.sent, ota.sent + uploadChunkBytes);
-        ota.sent += slice.length;
-        sendCmd('CMD_OTAD:' + bytesToB64(slice));
-
-        const pct = ota.sent * 100 / ota.bytes.length;
-        document.getElementById('ota-fill').style.width = pct.toFixed(1) + '%';
+        ota.pct = pct;
+        document.getElementById('ota-fill').style.width = pct + '%';
         const elapsed = (Date.now() - ota.t0) / 1000;
-        const left = elapsed > 3 ? Math.round(elapsed * (100 / Math.max(pct, 0.1) - 1)) : 0;
-        const leftTxt = !left ? ''
-            : left > 90 ? ' · ~' + Math.ceil(left / 60) + ' min left'
-                        : ' · ~' + left + 's left';
+        const left = pct > 5 && elapsed > 3 ? Math.round(elapsed * (100 / pct - 1)) : 0;
         document.getElementById('ota-name').innerText =
-            ota.name + ' — ' + pct.toFixed(0) + '%' + leftTxt;
-        armOtaTimeout();
+            'downloading — ' + pct + '%' + (left ? ' · ~' + left + 's left' : '');
+        armOtaTimeout(60000);
     }
 
     function finishOtaUI() {
         if (ota) clearTimeout(ota.timer);
         ota = null;
         document.getElementById('ota-bar').classList.add('hidden');
+        document.getElementById('ota-fill').style.width = '0%';
         showAlert('Update complete',
-            'GLYPH is restarting with the new firmware. Reconnect in a few seconds.');
+            'GLYPH checked the image, switched to it and is restarting. '
+          + 'Reconnect in a few seconds.');
     }
 
     function failOta(why) {
         if (ota) clearTimeout(ota.timer);
         ota = null;
         document.getElementById('ota-bar').classList.add('hidden');
+        document.getElementById('ota-fill').style.width = '0%';
         showAlert('Update failed',
             escapeHtml(why) + '<br><br>The device kept the firmware it already had, '
-            + 'so it is still working. You can try again.');
+          + 'so it is still working. You can try again.');
     }
 
     function cancelOta() {
         if (!ota) return;
-        sendCmd('CMD_OTAABORT');
+        sendCmd('CMD_WOTAABORT');
         clearTimeout(ota.timer);
         ota = null;
         document.getElementById('ota-bar').classList.add('hidden');
@@ -3930,8 +3968,9 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
     // partitii. Prin Bluetooth se scrie DOAR in partitia de aplicatie, deci
     // acolo pleaca imaginea de aplicatie - un sfert din date pe o legatura care
     // e oricum partea inceata.
-    const FW_BIN_URL  = '../flasher/firmware.bin';       // cablu, ~4 MB
-    const FW_APP_URL  = '../flasher/firmware.app.bin';   // Bluetooth, ~1,4 MB
+    // firmware.bin (~4 MB, contopit) e pentru cablu si il foloseste pagina de
+    // flash, nu aplicatia. Aplicatia trimite aparatul dupa imaginea de aplicatie.
+    const FW_APP_URL  = '../flasher/firmware.app.bin';   // Wi-Fi, ~1,4 MB
     const FW_META_URL = '../flasher/firmware.json';
 
     let deviceVersion = null;    // ce ruleaza aparatul acum
@@ -4062,19 +4101,22 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
 
         if (!siteFirmware) {
             // Deschis de pe disc, sau site fara firmware.json: nu inventam nimic.
-            box.className = 'fw-state' + (deviceLegacy ? ' behind' : '');
+            box.className = 'fw-state' + (deviceLegacy || otaSlotOk === false ? ' behind' : '');
             box.innerHTML = '<div class="fw-line"><span>On the device</span><b>' + escapeHtml(dev) + '</b></div>'
                 + '<div class="fw-note">' + (deviceLegacy
                     ? 'The device did not report a version, so it is on a build older '
                       + 'than these features. Flash it once over USB; after that it can '
-                      + 'update itself over Bluetooth.'
-                    : 'Could not read the version published on the site. '
-                      + 'You can still pick a .bin file by hand.') + '</div>';
+                      + 'update itself.'
+                    : otaSlotOk === false
+                    ? 'This device has a single application partition and cannot update '
+                      + 'itself. Flash once over USB with the two-slot table.'
+                    : 'Could not read the version published on the site, so there is '
+                      + 'nothing to compare against.') + '</div>';
             if (btn) btn.disabled = true;
             return;
         }
 
-        if (btn) btn.disabled = false;
+        if (btn) btn.disabled = (otaSlotOk === false);
         const cmp = compareVersions(deviceVersion, siteFirmware.version);
         let cls = '', note = '';
 
@@ -4082,7 +4124,13 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
             cls = 'behind';
             note = 'The device did not answer with a version, so it is on a build '
                  + 'older than these features. It has to be flashed once over USB '
-                 + 'before it can update itself over Bluetooth.';
+                 + 'before it can update itself.';
+        } else if (otaSlotOk === false) {
+            cls = 'behind';
+            note = 'This device has a single application partition, so it cannot '
+                 + 'update itself at all — there is nowhere to write except over '
+                 + 'the running firmware. Flash once over USB with the two-slot '
+                 + 'table (Arduino/partitions.csv) to fix it for good.';
         } else if (!deviceVersion) {
             note = 'Connect to GLYPH to compare with what it is running.';
         } else if (cmp === -1) {
@@ -4108,196 +4156,78 @@ body.sos-on .tab-pane:not(.flush){padding-bottom:96px}
           + '<div class="fw-note">' + note + '</div>';
     }
 
-    // Ia fisierul de aplicatie daca e publicat; daca nu e, cade inapoi pe cel
-    // contopit si decupeaza din el. Un site care are doar firmware.bin merge
-    // mai departe fara sa se strice nimic.
-    async function fetchSiteFirmware() {
+    // Verifica din telefon ca fisierul chiar exista si are marimea anuntata,
+    // INAINTE sa trimitem aparatul dupa el. Un cap de cerere costa nimic; un
+    // aparat care intra in retea, sterge partitia si abia apoi descopera un 404
+    // costa un minut si o repornire degeaba.
+    async function checkPublishedImage() {
+        const url = new URL(FW_APP_URL, location.href).href;
+        let r;
         try {
-            const r = await fetch(FW_APP_URL, { cache: 'no-store' });
-            if (r.ok) {
-                const bytes = new Uint8Array(await r.arrayBuffer());
-                if (classifyFirmware(bytes).kind === 'app') {
-                    return { bytes, source: 'app' };
-                }
-                // Publicat sub numele gresit: mai bine spunem, nu trimitem.
-                const err = new Error('firmware.app.bin is not an application image. '
-                    + 'It should be GLYPH_.ino.bin (~1.4 MB), not the merged 4 MB file. '
-                    + 'Run flasher/publish.py, which checks this before copying anything.');
-                err.wrongFile = true;
-                throw err;
-            }
-            if (r.status !== 404) throw new Error('HTTP ' + r.status);
+            r = await fetch(url, { method: 'HEAD', cache: 'no-store' });
         } catch (e) {
-            if (e && e.wrongFile) throw e;
-            // altfel: nu exista, sau reteaua a refuzat - incercam celalalt fisier
+            return { ok: false, why: 'Could not reach ' + escapeHtml(url) };
         }
+        if (r.status === 404) {
+            return { ok: false, why: 'The site has no <code>firmware.app.bin</code>. '
+                   + 'Run <code>flasher/publish.py</code> to publish it — it is the '
+                   + 'application image, the one GLYPH writes into itself.' };
+        }
+        if (!r.ok) return { ok: false, why: 'The site answered HTTP ' + r.status + '.' };
 
-        const r2 = await fetch(FW_BIN_URL, { cache: 'no-store' });
-        if (!r2.ok) throw new Error('HTTP ' + r2.status);
-        return { bytes: new Uint8Array(await r2.arrayBuffer()), source: 'merged' };
+        const len = parseInt(r.headers.get('content-length') || '', 10);
+        if (siteFirmware.app_size && len && len !== siteFirmware.app_size) {
+            return { ok: false, why: 'firmware.json says ' + siteFirmware.app_size
+                   + ' bytes but firmware.app.bin is ' + len + '. One was updated '
+                   + 'without the other, so the version shown cannot be trusted.' };
+        }
+        return { ok: true, url: url, len: len || siteFirmware.app_size || 0 };
     }
 
     async function updateFromSite() {
         if (!isConnected) { showToast('Connect to GLYPH first', 'warning'); return; }
-        if (legacyBlocked('Updating over Bluetooth')) return;
+        if (legacyBlocked('Updating')) return;
+        if (otaSlotBlocked()) return;
         if (ota) { showToast('An update is already running', 'warning'); return; }
         if (!siteFirmware) { showToast('No firmware published on the site', 'error'); return; }
 
-        showToast('Downloading firmware…');
-        let got;
-        try {
-            got = await fetchSiteFirmware();
-        } catch (e) {
-            showAlert(e && e.wrongFile ? 'Wrong file published' : 'Download failed',
-                (e && e.wrongFile ? '' : 'Could not fetch the firmware from the site.<br><br>')
-                + escapeHtml(String(e.message || e)));
-            return;
-        }
+        showToast('Checking the published build…');
+        const chk = await checkPublishedImage();
+        if (!chk.ok) { showAlert('Nothing to send', chk.why); return; }
 
-        // Descrierea si binarul trebuie sa fie despre acelasi fisier. Daca nu
-        // sunt, versiunea afisata e o minciuna si nu trimitem nimic pe baza ei.
-        const declared = got.source === 'app' ? siteFirmware.app_size : siteFirmware.size;
-        const fname    = got.source === 'app' ? 'firmware.app.bin' : 'firmware.bin';
-        if (declared && got.bytes.length !== declared) {
-            showAlert('Site data does not match',
-                'firmware.json says ' + declared + ' bytes but ' + fname + ' is '
-                + got.bytes.length + '.<br><br>One of the two was updated without the '
-                + 'other, so the version shown cannot be trusted. Fix firmware.json '
-                + 'before sending anything from here.');
-            return;
-        }
-
-        // Marimea din confirmare e a APLICATIEI care pleaca, nu a fisierului
-        // descarcat: dintr-o imagine contopita de 4 MB se trimite ~1,4 MB, si
-        // "4096 KB" ar fi pur si simplu o cifra falsa.
-        let appBytes;
-        try { appBytes = extractAppImage(got.bytes).bytes; }
-        catch (e) {
-            showAlert('Not a usable firmware file', escapeHtml(String(e.message || e)));
+        if (otaSlotBytes && chk.len && chk.len > otaSlotBytes) {
+            showAlert('Too big for the slot',
+                'The published image is ' + Math.round(chk.len / 1024) + ' KB but the '
+              + 'spare partition is only ' + Math.round(otaSlotBytes / 1024) + ' KB.');
             return;
         }
 
         const cmp = compareVersions(deviceVersion, siteFirmware.version);
-        const warn = (cmp === 1)
-            ? '<br><br><b>Careful:</b> the device is running a NEWER build than this one. '
-              + 'Sending it would move the device backwards.'
-            : '';
-
-        // Fara fisierul de aplicatie se descarca 4 MB ca sa se trimita 1,4.
-        // Merge, dar merita spus o data.
-        const note = got.source === 'merged'
-            ? '<br><br>The site has no <code>firmware.app.bin</code>, so the 4 MB cable '
-            + 'image was downloaded and the application cut out of it. Publishing '
-            + '<code>GLYPH_.ino.bin</code> as <code>firmware.app.bin</code> would make '
-            + 'this download a quarter of the size.'
-            : '';
-
-        showConfirm('Update from site',
-            'Send version <b>' + escapeHtml(siteFirmware.version) + '</b> ('
-            + Math.round(appBytes.length / 1024) + ' KB) to GLYPH?' + warn
-            + '<br><br>This takes <b>several minutes</b> — a firmware image is about '
-            + '1.4 MB and Bluetooth sends it in small pieces. Keep the phone near the '
-            + 'device and the screen on. It restarts when done. If anything interrupts '
-            + 'it, the device simply keeps the firmware it has now.' + note,
-            () => startOta('firmware ' + siteFirmware.version, got.bytes));
-    }
-
-    // =====================================================================
-    // IMAGINEA DE FIRMWARE
-    //
-    // "Export Compiled Binary" din Arduino scoate o imagine CONTOPITA de 4 MB:
-    // bootloader la offsetul 0, tabela de partitii la 0x8000, aplicatia la
-    // 0x10000, restul umplutura. Aia e fisierul corect pentru flasher-ul web,
-    // care scrie de la offsetul 0 - dar e gresit pentru actualizarea prin
-    // Bluetooth, fiindca acolo se scrie DOAR aplicatia, intr-o partitie de
-    // ~1,3 MB. De aceea aparatul raspundea "NO ROOM": i se cereau 4 MB.
-    //
-    // In loc sa-ti cerem un al doilea fisier, decupam aplicatia din imaginea
-    // contopita. Formatul e documentat si simplu: antet de 24 de octeti, apoi
-    // segmente cu lungimea scrisa in fata fiecaruia, apoi umplutura pana la un
-    // multiplu de 16 si un octet de suma de control.
-    // =====================================================================
-
-    const ESP_MAGIC = 0xE9;
-    const ESP_APP_OFFSET = 0x10000;
-
-    // Lungimea reala a imaginii care incepe la `off`, sau null daca nu e una.
-    function espImageLength(b, off) {
-        if (off + 24 > b.length || b[off] !== ESP_MAGIC) return null;
-        const segs = b[off + 1];
-        const hashAppended = b[off + 22];
-        if (segs === 0 || segs > 16) return null;
-
-        let p = off + 24;
-        for (let i = 0; i < segs; i++) {
-            if (p + 8 > b.length) return null;
-            const len = b[p + 4] | (b[p + 5] << 8) | (b[p + 6] << 16) | (b[p + 7] << 24);
-            if (len < 0 || len > b.length) return null;
-            p += 8 + len;
+        if (cmp === 0) {
+            showConfirm('Already on this build',
+                'GLYPH is running <b>' + escapeHtml(siteFirmware.version) + '</b>, the same '
+              + 'version published here. Send it again anyway?',
+                function () { openWifiForm(); });
+            return;
         }
-        // Umplutura pana cand (lungime + 1) e multiplu de 16, plus octetul de suma.
-        p += (15 - ((p - off) % 16)) + 1;
-        if (hashAppended) p += 32;
-        return p > b.length ? null : p - off;
-    }
-
-    // Verificarea proprie a formatului: XOR peste datele tuturor segmentelor,
-    // pornind de la 0xEF, trebuie sa dea octetul de suma. Daca se potriveste,
-    // limitele au fost gasite corect - nu am taiat la intamplare.
-    function espChecksumOk(b, off) {
-        const segs = b[off + 1];
-        let p = off + 24, chk = 0xEF;
-        for (let i = 0; i < segs; i++) {
-            const len = b[p + 4] | (b[p + 5] << 8) | (b[p + 6] << 16) | (b[p + 7] << 24);
-            for (let j = 0; j < len; j++) chk ^= b[p + 8 + j];
-            p += 8 + len;
+        if (cmp === 1) {
+            showConfirm('This would go backwards',
+                'GLYPH is running <b>' + escapeHtml(deviceVersion) + '</b>, which is NEWER '
+              + 'than the <b>' + escapeHtml(siteFirmware.version) + '</b> published here. '
+              + 'Sending it would move the device back.<br><br>Continue?',
+                function () { openWifiForm(); });
+            return;
         }
-        const pos = p + (15 - ((p - off) % 16));
-        return pos < b.length && b[pos] === chk;
-    }
 
-    // Intoarce { bytes, note } sau arunca o eroare explicata pe intelesul omului.
-    // O imagine valida la un anumit offset, verificata cu propria ei suma de
-    // control. Un singur octet 0xE9 nu dovedeste nimic: intr-un fisier de 1,4 MB
-    // orice octet are o sansa din 256 sa arate asa, si atunci aplicatia ar fi
-    // taiata din mijlocul ei si trimisa ca firmware.
-    function validImageAt(b, off) {
-        const len = espImageLength(b, off);
-        if (len === null) return null;
-        return espChecksumOk(b, off) ? len : null;
-    }
-
-    // Ce fel de fisier e acesta? 'app' = imaginea de aplicatie, exact ce se
-    // trimite prin Bluetooth. 'merged' = imaginea de 4 MB pentru cablu.
-    function classifyFirmware(b) {
-        if (b.length < 1024 || b[0] !== ESP_MAGIC) return { kind: 'unknown' };
-
-        // Imagine contopita: bootloader mic la 0, aplicatia la 0x10000, ambele
-        // trecand propria verificare.
-        if (b.length > ESP_APP_OFFSET + 1024) {
-            const appLen = validImageAt(b, ESP_APP_OFFSET);
-            if (appLen !== null) return { kind: 'merged', off: ESP_APP_OFFSET, len: appLen };
-        }
-        const ownLen = validImageAt(b, 0);
-        if (ownLen !== null) return { kind: 'app', off: 0, len: ownLen };
-        return { kind: 'unknown' };
-    }
-
-    // Intoarce { bytes, note } sau arunca o eroare explicata pe intelesul omului.
-    function extractAppImage(b) {
-        const c = classifyFirmware(b);
-        if (c.kind === 'unknown') {
-            throw new Error(b.length < 1024 || b[0] !== ESP_MAGIC
-                ? 'That file does not look like an ESP32 firmware image.'
-                : 'The firmware image is damaged, truncated, or failed its own checksum.');
-        }
-        return {
-            bytes: b.slice(c.off, c.off + c.len),
-            note: c.kind === 'merged'
-                ? 'Cut the application out of the 4 MB cable image ('
-                  + Math.round(c.len / 1024) + ' KB).'
-                : ''
-        };
+        showConfirm('Update over Wi-Fi',
+            'GLYPH will join a Wi-Fi network, download version <b>'
+          + escapeHtml(siteFirmware.version) + '</b> ('
+          + Math.round(chk.len / 1024) + ' KB) itself, and restart into it.'
+          + '<br><br>It takes well under a minute. The phone only passes on the '
+          + 'network name and the address — it does not carry the file.'
+          + '<br><br>If anything interrupts it, the device keeps the firmware it '
+          + 'has now.',
+            function () { openWifiForm(); });
     }
 
     // =====================================================================
